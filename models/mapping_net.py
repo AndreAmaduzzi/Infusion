@@ -41,6 +41,7 @@ class MappingNet(nn.Module):
         src = self.pos_encoder(src)                                             # src [17, batch_size, 1024]
         src = self.transformer_encoder(src)
         output = self.proj(src[0,:])
+        output = output.reshape(output.shape[0], -1, 3)
         return output                                                           # output [batch_size, 6144]
 
 class PositionalEncoding(nn.Module):
