@@ -27,25 +27,23 @@ class MappingNet(nn.Module):
         if self.cls_token is not None:
             nn.init.normal_(self.cls_token, std=1e-6) # from rwightman code
         self.proj.bias.data.zero_()
-        self.proj.weight.data.uniform_(-initrange, initrange)
-    
+        self.proj.weight.data.uniform_(-initrange, initrange)  
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor, src_key_padding_mask: Tensor) -> Tensor:
         """
         Args:
-            x: Tensor, shape [seq_len, embed_size, batch_size]
+            x: Tensor, shape [seq_length, batch_size, embed_size] 
         Returns:
             output Tensor of shape [seq_len, batch_size, embed_size]
         """
-        src = torch.cat((self.cls_token.expand(-1, x.shape[1], -1), x), dim=0)  # x.shape[2] is the batch size
-        src = self.pos_encoder(src)                                             # src [17, batch_size, 1024]
-        src = self.transformer_encoder(src)
+        src = torch.cat((self.cls_token.expand(-1, x.shape[1], -1), x), dim=0)  # x         [seq_length, batch_size, embed_size] =  [16, batch_size, 1024] 
+        src = self.pos_encoder(src)                                             # src       [seq_length+1, batch_size, 1024]     =  [17, batch_size, 1024] 
+        src = self.transformer_encoder(src, src_key_padding_mask=src_key_padding_mask)                           # src_mask  [batch_size, seq_length]
         output = self.proj(src[0,:])
         output = output.reshape(output.shape[0], -1, 3)
-        return output                                                           # output [batch_size, 6144]
+        return output                                                           # output [batch_size, 6144] => [batch_size, 2048, 3]
 
 class PositionalEncoding(nn.Module):
-
     def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
