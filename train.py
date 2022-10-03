@@ -190,16 +190,19 @@ if __name__=="__main__":
     # instantiate model
     model = Infusion(args)
     model = model.cuda()
+
+    logging.info('Loaded pre-trained weights of PVD')
+
     model.multi_gpu_wrapper(_transform_) # self.pvd.model = nn.parallel.DataParallel(self.pvd.model) where self.pvd.model is PVCNN2
+
+    # Load pre-trained PVD
+    ckpt_pvd = torch.load(args.ckpt_pvd)
+    model.pvd.load_state_dict(ckpt_pvd['model_state'])
 
     optimizer = torch.optim.Adam(model.mapping_net.parameters(), lr=args.lr)
 
     for params_pvd in model.pvd.parameters():
         params_pvd.requires_grad=False
-
-    params=[]
-    for param in model.mapping_net.parameters():
-        params.append(param)
 
     train(args, model=model, train_iter=train_iter, val_iter=val_iter, max_iters=100, optimizer=optimizer, writer=writer, logger=logger)
     writer.flush()
