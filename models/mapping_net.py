@@ -40,7 +40,7 @@ class MappingNet(nn.Module):
         src = self.pos_encoder(src)                                             # src       [seq_length+1, batch_size, 1024]     =  [17, batch_size, 1024] 
         src = self.transformer_encoder(src, src_key_padding_mask=src_key_padding_mask)                           # src_mask  [batch_size, seq_length]
         output = self.proj(src[0,:])
-        output = output.reshape(output.shape[0], -1, 3)
+        output = output.reshape(output.shape[0], 3, -1)
         return output                                                           # output [batch_size, 6144] => [batch_size, 2048, 3]
 
 class PositionalEncoding(nn.Module):
