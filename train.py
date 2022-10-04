@@ -81,6 +81,9 @@ def train(args, model, train_iter: Iterator, val_iter: Iterator, max_iters: int,
         gt_shape = torch.permute(gt_shape, (0, 2, 1))
         logger.info('generated shape of size: %s', pred_shape.shape)
         logger.info('reference shape: %s', gt_shape.shape)
+        gt_shape = normalize_cloud(gt_shape)
+        pred_shape = normalize_cloud(pred_shape)
+
         torch.save(pred_shape, os.path.join(args.exp_dir, f'pred_shape_{i}.pt'))
         torch.save(gt_shape, os.path.join(args.exp_dir, f'gt_shape_{i}.pt'))
         torch.save(pred_noise, os.path.join(args.exp_dir, f'pred_noise_{i}.pt'))

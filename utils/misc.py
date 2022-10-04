@@ -2,7 +2,7 @@ import logging
 logger = logging.getLogger()
 import os
 import sys
-
+import torch
 
 def setup_logging(output_dir):
     log_format = logging.Formatter("%(asctime)s : %(message)s")
@@ -20,3 +20,11 @@ def setup_logging(output_dir):
     logger.setLevel(logging.INFO)
 
     return logger
+
+def normalize_cloud(pcd: torch.Tensor):
+    bc = torch.mean(pcd, dim=2, keepdim=True)
+    dist = torch.cdist(torch.permute(pcd, (0, 2, 1)), torch.permute(bc, (0, 2, 1)))
+    max_dist = torch.max(dist, dim=1)[0]
+    new_pcd = (pcd - bc) / torch.unsqueeze(max_dist, dim=2)
+
+    return new_pcd
