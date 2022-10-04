@@ -20,9 +20,10 @@ class Infusion(nn.Module):
         with torch.no_grad():
             pred_shape = self.pvd.gen_samples(pred_noise.shape,
                                                 'cuda',
+                                                pred_noise=pred_noise,
                                                 clip_denoised=False)
 
-        return pred_shape
+        return pred_shape, pred_noise
 
     def multi_gpu_wrapper(self, f):
         self.pvd.model = f(self.pvd.model)

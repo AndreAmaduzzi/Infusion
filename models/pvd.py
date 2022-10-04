@@ -178,7 +178,7 @@ class GaussianDiffusion:
         return (sample, pred_xstart) if return_pred_xstart else sample
 
 
-    def p_sample_loop(self, denoise_fn, shape, device,
+    def p_sample_loop(self, denoise_fn, shape, device, pred_noise,
                       noise_fn=torch.randn, constrain_fn=lambda x, t:x,
                       clip_denoised=True, max_timestep=None, keep_running=False):
         """
@@ -192,7 +192,8 @@ class GaussianDiffusion:
             final_time = max_timestep
 
         assert isinstance(shape, (tuple, list))
-        img_t = noise_fn(size=shape, dtype=torch.float, device=device)
+        #img_t = noise_fn(size=shape, dtype=torch.float, device=device) # noise is torch.randn (see default value of noise)
+        img_t = pred_noise
         for t in reversed(range(0, final_time if not keep_running else len(self.betas))):
             img_t = constrain_fn(img_t, t)
             t_ = torch.empty(shape[0], dtype=torch.int64, device=device).fill_(t)
@@ -287,10 +288,10 @@ class PVD(nn.Module):
         assert losses.shape == t.shape == torch.Size([B])
         return losses
 
-    def gen_samples(self, shape, device, noise_fn=torch.randn, constrain_fn=lambda x, t:x,
+    def gen_samples(self, shape, device, pred_noise, noise_fn=torch.randn, constrain_fn=lambda x, t:x,
                     clip_denoised=False, max_timestep=None,
                     keep_running=False):
-        return self.diffusion.p_sample_loop(self._denoise, shape=shape, device=device, noise_fn=noise_fn,
+        return self.diffusion.p_sample_loop(self._denoise, shape=shape, device=device, pred_noise=pred_noise, noise_fn=noise_fn,
                                             constrain_fn=constrain_fn,
                                             clip_denoised=clip_denoised, max_timestep=max_timestep,
                                             keep_running=keep_running)
