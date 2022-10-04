@@ -41,20 +41,18 @@ parser.add_argument('--loss_type', default='mse')
 parser.add_argument('--model_mean_type', default='eps')
 parser.add_argument('--model_var_type', default='fixedsmall')
 
-
 # PVCNN
-parser.add_argument('--nc', default=3)
+parser.add_argument('--nc', help='n of channels of input noise', default=3)
 parser.add_argument('--attention', default=True)
 parser.add_argument('--dropout', default=0.1)
 parser.add_argument('--embed_dim', type=int, default=64)
-
 
 # Training
 parser.add_argument('--lr', type=int, help='learning rate', default=1e-4)
 parser.add_argument('--seed', type=int, default=2022)
 parser.add_argument('--device', type=str, default='cuda')
-parser.add_argument('--exp_dir', type=str, help='directory for experiments logging', default="./exps/exp_1")
-parser.add_argument('--val_freq', type=int, help='validation frequency', default=50)
+parser.add_argument('--exp_dir', type=str, help='directory for experiments logging', default="./exps/exp_2")
+parser.add_argument('--val_freq', type=int, help='validation frequency', default=100)
 parser.add_argument('--max_grad_norm', type=float, default=10)
 
 
@@ -70,21 +68,22 @@ def train(args, model, train_iter: Iterator, val_iter: Iterator, max_iters: int,
     for i in tqdm(range(max_iters)):
         start = datetime.now()
         train_batch= next(train_iter)
-        x = train_batch["text_embed"]
+        x = train_batch["text_embed"].cuda()
         x = torch.transpose(x, 1, 0)
-        mask = train_batch["key_pad_mask"]
-        gt_shape = train_batch["pointcloud"].to(args.device)
+        mask = train_batch["key_pad_mask"].cuda()
+        gt_shape = train_batch["pointcloud"].cuda()
         
         optimizer.zero_grad()
         model.mapping_net.train()
         model.pvd.train()
         
-        pred_shape = model(x=x, src_key_padding_mask = mask)
+        pred_shape, pred_noise = model(x=x, src_key_padding_mask = mask)
         gt_shape = torch.permute(gt_shape, (0, 2, 1))
         logger.info('generated shape of size: %s', pred_shape.shape)
         logger.info('reference shape: %s', gt_shape.shape)
         torch.save(pred_shape, os.path.join(args.exp_dir, f'pred_shape_{i}.pt'))
         torch.save(gt_shape, os.path.join(args.exp_dir, f'gt_shape_{i}.pt'))
+        torch.save(pred_noise, os.path.join(args.exp_dir, f'pred_noise_{i}.pt'))
 
         # compute loss between pred_shape and gt_shape
         chamfer_dist = chamfer(pred_shape, gt_shape) # chamfer_dist = (chamfer, accuracy, completeness, indices_pred_gt, indices_gt_pred)
@@ -111,17 +110,20 @@ def train(args, model, train_iter: Iterator, val_iter: Iterator, max_iters: int,
 
         end = datetime.now()
 
+        logger.info('Time for one training iteration: %d seconds', (end-start).total_seconds())
+
         # Validation
-        if (i+1) % args.val_freq:
+        if i % args.val_freq == 0:
+            start = datetime.now()
             model.mapping_net.eval()
             model.pvd.eval()
             with torch.no_grad():
                 val_batch = next(val_iter)
-                x = val_batch["text_embed"]
+                x = val_batch["text_embed"].cuda()
                 x = torch.transpose(x, 1, 0)
-                mask = val_batch["key_pad_mask"]
-                gt_shape = val_batch["pointcloud"].to(args.device)        
-                pred_shape = model(x=x, src_key_padding_mask = mask)
+                mask = val_batch["key_pad_mask"].cuda()
+                gt_shape = val_batch["pointcloud"].cuda()   
+                pred_shape, pred_noise = model(x=x, src_key_padding_mask = mask)
                 gt_shape = torch.permute(gt_shape, (0, 2, 1))
                 # compute loss between pred_shape and gt_shape
                 chamfer_dist = chamfer(pred_shape, gt_shape) # chamfer_dist = (chamfer, accuracy, completeness, indices_pred_gt, indices_gt_pred)
@@ -134,10 +136,9 @@ def train(args, model, train_iter: Iterator, val_iter: Iterator, max_iters: int,
                             i, loss.item(), orig_grad_norm, optimizer.param_groups[0]['lr']
                             ))
                 
-                writer.flush()
-
-
-        logger.info('Time for one iteration: %d', (end-start).total_seconds())
+                writer.flush()  
+            end = datetime.now()
+            logger.info('Time for one validation: %d seconds', (end-start).total_seconds())
         writer.flush()
 
 
@@ -152,38 +153,38 @@ if __name__=="__main__":
     # Load datasets
     ds_path = Path("/media/data2/aamaduzzi/datasets/Text2Shape/")
     train_dset = Text2Shape(root=ds_path,
-                        split="test",
-                        categories="chair",
+                        split="train",
+                        categories="all",
                         from_shapenet_v1=True,
                         from_shapenet_v2=False,
                         conditional_setup=True,
                         language_model="t5-11b",
                         lowercase_text=False,
                         max_length=60,
-                        scale_mode="shape_bbox")
+                        scale_mode="shape_unit")
     
     val_dset = Text2Shape(root=ds_path,
-                        split="test",
-                        categories="chair",
+                        split="val",
+                        categories="all",
                         from_shapenet_v1=True,
                         from_shapenet_v2=False,
                         conditional_setup=True,
                         language_model="t5-11b",
                         lowercase_text=False,
                         max_length=60,
-                        scale_mode="shape_bbox")
+                        scale_mode="shape_unit")
 
     train_iter = get_data_iterator(DataLoader(
         train_dset,
-        batch_size=5,
-        num_workers=0,
+        batch_size=16,
+        num_workers=8,
         shuffle=True,
     ))
 
     val_iter = get_data_iterator(DataLoader(
         val_dset,
-        batch_size=5,
-        num_workers=0,
+        batch_size=16,
+        num_workers=8,
         shuffle=True,
     ))
 
@@ -196,13 +197,15 @@ if __name__=="__main__":
     model.multi_gpu_wrapper(_transform_) # self.pvd.model = nn.parallel.DataParallel(self.pvd.model) where self.pvd.model is PVCNN2
 
     # Load pre-trained PVD
-    ckpt_pvd = torch.load(args.ckpt_pvd)
-    model.pvd.load_state_dict(ckpt_pvd['model_state'])
+    model.pvd.eval()
+    with torch.no_grad():
+        ckpt_pvd = torch.load(args.ckpt_pvd)
+        model.pvd.load_state_dict(ckpt_pvd['model_state'])
 
     optimizer = torch.optim.Adam(model.mapping_net.parameters(), lr=args.lr)
 
     for params_pvd in model.pvd.parameters():
         params_pvd.requires_grad=False
 
-    train(args, model=model, train_iter=train_iter, val_iter=val_iter, max_iters=100, optimizer=optimizer, writer=writer, logger=logger)
+    train(args, model=model, train_iter=train_iter, val_iter=val_iter, max_iters=3000, optimizer=optimizer, writer=writer, logger=logger)
     writer.flush()
