@@ -1,4 +1,5 @@
 from email.policy import default
+from types import new_class
 from typing import Iterator
 import argparse
 import numpy as np
@@ -51,8 +52,8 @@ parser.add_argument('--embed_dim', type=int, default=64)
 parser.add_argument('--lr', type=int, help='learning rate', default=1e-4)
 parser.add_argument('--seed', type=int, default=2022)
 parser.add_argument('--device', type=str, default='cuda')
-parser.add_argument('--exp_dir', type=str, help='directory for experiments logging', default="./exps/exp_2")
-parser.add_argument('--val_freq', type=int, help='validation frequency', default=100)
+parser.add_argument('--exp_dir', type=str, help='directory for experiments logging', default="./exps/exp_5")
+parser.add_argument('--val_freq', type=int, help='validation frequency', default=1500) # about 3 epochs
 parser.add_argument('--max_grad_norm', type=float, default=10)
 
 
@@ -72,13 +73,15 @@ def train(args, model, train_iter: Iterator, val_iter: Iterator, max_iters: int,
         x = torch.transpose(x, 1, 0)
         mask = train_batch["key_pad_mask"].cuda()
         gt_shape = train_batch["pointcloud"].cuda()
-        
-        optimizer.zero_grad()
+        text = train_batch["text"]
+                    
         model.mapping_net.train()
-        model.pvd.train()
+        model.pvd.eval()
         
         pred_shape, pred_noise = model(x=x, src_key_padding_mask = mask)
-        gt_shape = torch.permute(gt_shape, (0, 2, 1))
+        print(pred_shape.shape)
+        print(gt_shape.shape)
+        pred_shape = torch.permute(pred_shape, (0,2,1))
         logger.info('generated shape of size: %s', pred_shape.shape)
         logger.info('reference shape: %s', gt_shape.shape)
         gt_shape = normalize_cloud(gt_shape)
@@ -87,22 +90,48 @@ def train(args, model, train_iter: Iterator, val_iter: Iterator, max_iters: int,
         torch.save(pred_shape, os.path.join(args.exp_dir, f'pred_shape_{i}.pt'))
         torch.save(gt_shape, os.path.join(args.exp_dir, f'gt_shape_{i}.pt'))
         torch.save(pred_noise, os.path.join(args.exp_dir, f'pred_noise_{i}.pt'))
+        with open(os.path.join(args.exp_dir, f'texts_{i}.txt'), 'w') as f:
+            for text_pt in text:
+                f.write(text_pt +'\n')
+        f.close()
 
         # compute loss between pred_shape and gt_shape
         chamfer_dist = chamfer(pred_shape, gt_shape) # chamfer_dist = (chamfer, accuracy, completeness, indices_pred_gt, indices_gt_pred)
         loss = chamfer_dist[0].mean()        
 
         # backprop
+
+        loss.requires_grad=True
+        loss.backward()
+        optimizer.step()
+
+        if i==0:
+            old_cls_token = model.mapping_net.cls_token.data
+            old_proj_weight = model.mapping_net.proj.weight.data
+            old_proj_bias = model.mapping_net.proj.bias.data
+        else:
+            new_cls_token = model.mapping_net.cls_token.data
+            new_proj_weight = model.mapping_net.proj.weight.data
+            new_proj_bias = model.mapping_net.proj.bias.data
+
+            if torch.equal(new_cls_token, old_cls_token):
+                print('CLS TOKEN not updated :( ')
+            else:
+                print('CLS TOKEN updated correctly :) ')
+            if torch.equal(new_proj_weight, old_proj_weight):
+                print('PROJ WEIGHT not updated :( ')
+            else:
+                print('PROJ WEIGHT updated correctly :) ')
+            if torch.equal(new_proj_bias, old_proj_bias):
+                print('PROJ BIAS not updated :( ')
+            else:
+                print('PROJ BIAS updated correctly :) ')
+            old_cls_token = new_cls_token
+            old_proj_weight = new_proj_weight
+            old_proj_bias = new_proj_bias
+
         optimizer.zero_grad()
-
-        #for param in model.parameters():
-        #    if param.requires_grad == False:
-        #        print('req grad False: ', param)
-
-        #loss.requires_grad=True
-        #loss.backward()
-        #optimizer.step()
-
+        
         orig_grad_norm = clip_grad_norm_(model.parameters(), args.max_grad_norm)
         writer.add_scalar("Loss/train", loss, i)
         writer.add_scalar('Grad_norm/train', orig_grad_norm, i)
@@ -116,7 +145,7 @@ def train(args, model, train_iter: Iterator, val_iter: Iterator, max_iters: int,
         logger.info('Time for one training iteration: %d seconds', (end-start).total_seconds())
 
         # Validation
-        if i % args.val_freq == 0:
+        if i+1 % args.val_freq == 0:
             start = datetime.now()
             model.mapping_net.eval()
             model.pvd.eval()
@@ -157,7 +186,7 @@ if __name__=="__main__":
     ds_path = Path("/media/data2/aamaduzzi/datasets/Text2Shape/")
     train_dset = Text2Shape(root=ds_path,
                         split="train",
-                        categories="all",
+                        categories="chair",
                         from_shapenet_v1=True,
                         from_shapenet_v2=False,
                         conditional_setup=True,
@@ -168,7 +197,7 @@ if __name__=="__main__":
     
     val_dset = Text2Shape(root=ds_path,
                         split="val",
-                        categories="all",
+                        categories="chair",
                         from_shapenet_v1=True,
                         from_shapenet_v2=False,
                         conditional_setup=True,
@@ -176,18 +205,20 @@ if __name__=="__main__":
                         lowercase_text=False,
                         max_length=60,
                         scale_mode="shape_unit")
+    
+    train_dset = torch.utils.data.Subset(train_dset, np.arange(10))
 
     train_iter = get_data_iterator(DataLoader(
         train_dset,
-        batch_size=16,
-        num_workers=8,
+        batch_size=10,
+        num_workers=0,
         shuffle=True,
     ))
 
     val_iter = get_data_iterator(DataLoader(
         val_dset,
-        batch_size=16,
-        num_workers=8,
+        batch_size=10,
+        num_workers=0,
         shuffle=True,
     ))
 
@@ -204,11 +235,11 @@ if __name__=="__main__":
     with torch.no_grad():
         ckpt_pvd = torch.load(args.ckpt_pvd)
         model.pvd.load_state_dict(ckpt_pvd['model_state'])
+    
+    #for params_pvd in model.pvd.parameters():
+    #    params_pvd.requires_grad=False
 
     optimizer = torch.optim.Adam(model.mapping_net.parameters(), lr=args.lr)
-
-    for params_pvd in model.pvd.parameters():
-        params_pvd.requires_grad=False
 
     train(args, model=model, train_iter=train_iter, val_iter=val_iter, max_iters=3000, optimizer=optimizer, writer=writer, logger=logger)
     writer.flush()
