@@ -22,8 +22,8 @@ def setup_logging(output_dir):
     return logger
 
 def normalize_cloud(pcd: torch.Tensor):
-    bc = torch.mean(pcd, dim=2, keepdim=True)
-    dist = torch.cdist(torch.permute(pcd, (0, 2, 1)), torch.permute(bc, (0, 2, 1)))
+    bc = torch.mean(pcd, dim=1, keepdim=True)
+    dist = torch.cdist(pcd, bc)
     max_dist = torch.max(dist, dim=1)[0]
     new_pcd = (pcd - bc) / torch.unsqueeze(max_dist, dim=2)
 
