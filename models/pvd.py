@@ -198,7 +198,9 @@ class GaussianDiffusion:
             img_t = constrain_fn(img_t, t)
             t_ = torch.empty(shape[0], dtype=torch.int64, device=device).fill_(t)
             img_t = self.p_sample(denoise_fn=denoise_fn, data=img_t,t=t_, noise_fn=noise_fn,
-                                  clip_denoised=clip_denoised, return_pred_xstart=False).detach()
+                                  clip_denoised=clip_denoised, return_pred_xstart=False)
+                                # TODO: if you want to update the weights, remove detach(), but GPUs will run out of memory
+                                # we detach, gradients graph is broken => no backprop => no params update
 
 
         assert img_t.shape == shape

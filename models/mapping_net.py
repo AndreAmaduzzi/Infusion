@@ -21,7 +21,7 @@ class MappingNet(nn.Module):
         self.pos_encoder = PositionalEncoding(d_model, dropout)
         encoder_layers = TransformerEncoderLayer(d_model, nhead)
         self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
-        self.cls_token = nn.Parameter(torch.zeros(1, 1, d_model))   # di quale dimensione deve essere il mio class token? io lo definisco cosi poi lo espando nel forwards
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, d_model), requires_grad=True)   # di quale dimensione deve essere il mio class token? io lo definisco cosi poi lo espando nel forwards
         self.proj = nn.Linear(d_model, out_flatshape)               # from 1024 to 2048x3 (we do not consider batch size, which is the last dim of the Tensor)
         self.init_weights()
     

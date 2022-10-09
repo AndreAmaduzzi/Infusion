@@ -63,9 +63,10 @@ np.random.seed(args.seed)
 random.seed(args.seed)
 
 def _transform_(m):
-    return nn.parallel.DataParallel(m)
+    return nn.parallel.DataParallel(m, device_ids=[0,1,3])
 
 def train(args, model, train_iter: Iterator, val_iter: Iterator, max_iters: int, optimizer, writer, logger):
+    model.mapping_net.train()
     for i in tqdm(range(max_iters)):
         start = datetime.now()
         train_batch= next(train_iter)
@@ -74,10 +75,11 @@ def train(args, model, train_iter: Iterator, val_iter: Iterator, max_iters: int,
         mask = train_batch["key_pad_mask"].cuda()
         gt_shape = train_batch["pointcloud"].cuda()
         text = train_batch["text"]
-                    
-        model.mapping_net.train()
-        model.pvd.eval()
+        #print(summary(model.mapping_net, [x.shape, mask.shape]))
+        #print(summary(model.pvd, (2048, 3)))
+        print(x.shape)
         
+        optimizer.zero_grad()
         pred_shape, pred_noise = model(x=x, src_key_padding_mask = mask)
         print(pred_shape.shape)
         print(gt_shape.shape)
@@ -104,7 +106,7 @@ def train(args, model, train_iter: Iterator, val_iter: Iterator, max_iters: int,
         loss.requires_grad=True
         loss.backward()
         optimizer.step()
-
+        
         if i==0:
             old_cls_token = model.mapping_net.cls_token.data
             old_proj_weight = model.mapping_net.proj.weight.data
@@ -130,7 +132,6 @@ def train(args, model, train_iter: Iterator, val_iter: Iterator, max_iters: int,
             old_proj_weight = new_proj_weight
             old_proj_bias = new_proj_bias
 
-        optimizer.zero_grad()
         
         orig_grad_norm = clip_grad_norm_(model.parameters(), args.max_grad_norm)
         writer.add_scalar("Loss/train", loss, i)
@@ -141,6 +142,8 @@ def train(args, model, train_iter: Iterator, val_iter: Iterator, max_iters: int,
                     ))
 
         end = datetime.now()
+
+
 
         logger.info('Time for one training iteration: %d seconds', (end-start).total_seconds())
 
@@ -185,18 +188,7 @@ if __name__=="__main__":
     # Load datasets
     ds_path = Path("/media/data2/aamaduzzi/datasets/Text2Shape/")
     train_dset = Text2Shape(root=ds_path,
-                        split="train",
-                        categories="chair",
-                        from_shapenet_v1=True,
-                        from_shapenet_v2=False,
-                        conditional_setup=True,
-                        language_model="t5-11b",
-                        lowercase_text=False,
-                        max_length=60,
-                        scale_mode="shape_unit")
-    
-    val_dset = Text2Shape(root=ds_path,
-                        split="val",
+                        split="test",
                         categories="chair",
                         from_shapenet_v1=True,
                         from_shapenet_v2=False,
@@ -210,17 +202,11 @@ if __name__=="__main__":
 
     train_iter = get_data_iterator(DataLoader(
         train_dset,
-        batch_size=10,
+        batch_size=1,
         num_workers=0,
         shuffle=True,
     ))
 
-    val_iter = get_data_iterator(DataLoader(
-        val_dset,
-        batch_size=10,
-        num_workers=0,
-        shuffle=True,
-    ))
 
     # instantiate model
     model = Infusion(args)
@@ -231,15 +217,25 @@ if __name__=="__main__":
     model.multi_gpu_wrapper(_transform_) # self.pvd.model = nn.parallel.DataParallel(self.pvd.model) where self.pvd.model is PVCNN2
 
     # Load pre-trained PVD
-    model.pvd.eval()
-    with torch.no_grad():
-        ckpt_pvd = torch.load(args.ckpt_pvd)
-        model.pvd.load_state_dict(ckpt_pvd['model_state'])
+    ckpt_pvd = torch.load(args.ckpt_pvd)
+    model.pvd.load_state_dict(ckpt_pvd['model_state'])
     
-    #for params_pvd in model.pvd.parameters():
-    #    params_pvd.requires_grad=False
+    '''
+    new_state_dict = OrderedDict()
+    for k, v in ckpt_pvd['model_state'].items():
+        if 'module' in k:
+            name = k
+            name = k.replace('model.module', 'model')
+        else:
+            name=k
+        new_state_dict[name]=v
+
+    model.pvd.load_state_dict(new_state_dict)
+    '''
+    for params_pvd in model.pvd.parameters():
+        params_pvd.requires_grad=False
 
     optimizer = torch.optim.Adam(model.mapping_net.parameters(), lr=args.lr)
 
-    train(args, model=model, train_iter=train_iter, val_iter=val_iter, max_iters=3000, optimizer=optimizer, writer=writer, logger=logger)
+    train(args, model=model, train_iter=train_iter, val_iter=train_iter, max_iters=3000, optimizer=optimizer, writer=writer, logger=logger)
     writer.flush()

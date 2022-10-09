@@ -17,8 +17,7 @@ class Infusion(nn.Module):
         pred_noise = self.mapping_net(x, src_key_padding_mask)
 
         self.pvd.eval()
-        with torch.no_grad():
-            pred_shape = self.pvd.gen_samples(pred_noise.shape,
+        pred_shape = self.pvd.gen_samples(pred_noise.shape,
                                                 'cuda',
                                                 pred_noise=pred_noise,
                                                 clip_denoised=False)
