@@ -121,16 +121,16 @@ class Uniform15KPC(Dataset):
                                     text_embed_path = os.path.join(root_text2shape, "text_embeds", t2s_language_model, "std", f"{tensor_name}")
                                 
                                 # prepare text embedding
-                                text_embed = torch.load(text_embed_path)[:self.max_length_text].to('cuda')
+                                text_embed = torch.load(text_embed_path)[:self.max_length_text]
                                 # build mask for this text embedding (i have text embeds length and max length)
-                                key_padding_mask_false = torch.zeros((1+text_embed.shape[0]), dtype=torch.bool)             # False => elements will be processed
+                                key_padding_mask_false = torch.zeros((1+text_embed.shape[0]), dtype=torch.bool)                       # False => elements will be processed
                                 key_padding_mask_true = torch.ones((self.max_length_text - text_embed.shape[0]), dtype=torch.bool)    # True => elements will NOT be processed
-                                key_padding_mask = torch.cat((key_padding_mask_false, key_padding_mask_true), dim=0).to('cuda')
+                                key_padding_mask = torch.cat((key_padding_mask_false, key_padding_mask_true), dim=0)
 
 
                                 # pad to length to max_length_t2s
                                 # add zeros at the end of text embed to reach max_length            
-                                pad = torch.zeros(self.max_length_text - text_embed.shape[0], text_embed.shape[1]).to('cuda')
+                                pad = torch.zeros(self.max_length_text - text_embed.shape[0], text_embed.shape[1])
                                 text_embed = torch.cat((text_embed, pad), dim=0)
 
                                 self.all_points.append(point_cloud[np.newaxis, ...])
@@ -146,7 +146,7 @@ class Uniform15KPC(Dataset):
         else:
             for cate_idx, subd in enumerate(self.subdirs):
                 # NOTE: [subd] here is synset id
-                sub_path = os.path.join(root_dir, subd, self.split)
+                sub_path = os.path.join(root_dir, subd, '_', self.split)
                 if not os.path.isdir(sub_path):
                     print("Directory missing : %s" % sub_path)
                     continue
@@ -159,8 +159,8 @@ class Uniform15KPC(Dataset):
 
                 # NOTE: [mid] contains the split: i.e. "train/<mid>" or "val/<mid>" or "test/<mid>"
                 for mid in all_mids:
-                    # obj_fname = os.path.join(sub_path, x)
-                    obj_fname = os.path.join(root_dir, subd, mid + ".npy")
+                    obj_fname = os.path.join(sub_path, x)
+                    #obj_fname = os.path.join(root_dir, subd, mid + ".npy")
                     try:
                         point_cloud = np.load(obj_fname)  # (15k, 3)
 
@@ -257,9 +257,9 @@ class Uniform15KPC(Dataset):
         m, s = self.get_pc_stats(idx)
         cate_idx = self.cate_idx_lst[idx]
         sid, mid = self.all_cate_mids[idx]
-        text = self.all_texts[idx]
-        text_embed = self.all_text_embeds[idx]
-        key_pad_mask = self.all_key_pad_masks[idx]
+        #text = self.all_texts[idx]
+        #text_embed = self.all_text_embeds[idx]
+        #key_pad_mask = self.all_key_pad_masks[idx]
 
         out = {
             'idx': idx,
@@ -267,8 +267,8 @@ class Uniform15KPC(Dataset):
             'test_points': te_out,
             'mean': m, 'std': s, 'cate_idx': cate_idx,
             'sid': sid, 'mid': mid,
-            'text': text, 'text_embed': text_embed,
-            'key_pad_mask': key_pad_mask
+            #'text': text, 'text_embed': text_embed,
+            #'key_pad_mask': key_pad_mask
         }
 
         if self.use_mask:
