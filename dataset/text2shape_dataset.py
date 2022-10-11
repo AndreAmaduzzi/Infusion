@@ -127,17 +127,17 @@ class Text2Shape(Dataset):
             else:
                 text_embed_path = self.root / "text_embeds" / language_model / "std" / f"{tensor_name}"
             
-            text_embed = torch.load(text_embed_path)[:max_length].to('cuda')
+            text_embed = torch.load(text_embed_path)[:max_length].cpu()
 
             # build mask for this text embedding (i have text embeds length and max length)
             key_padding_mask_false = torch.zeros((1+text_embed.shape[0]), dtype=torch.bool)            # False => elements will be processed
             key_padding_mask_true = torch.ones((max_length - text_embed.shape[0]), dtype=torch.bool) # True => elements will NOT be processed
-            key_padding_mask = torch.cat((key_padding_mask_false, key_padding_mask_true), dim=0).to('cuda')
+            key_padding_mask = torch.cat((key_padding_mask_false, key_padding_mask_true), dim=0)
 
 
             # pad to length to max_length_t2s
             # add zeros at the end of text embed to reach max_length            
-            pad = torch.zeros(max_length - text_embed.shape[0], text_embed.shape[1]).to('cuda')
+            pad = torch.zeros(max_length - text_embed.shape[0], text_embed.shape[1])
             text_embed = torch.cat((text_embed, pad), dim=0)
 
             # avg pooling
@@ -167,6 +167,7 @@ class Text2Shape(Dataset):
 
     def __getitem__(self, idx):
         data = {k:v.clone() if isinstance(v, torch.Tensor) else copy(v) for k, v in self.pointclouds[idx].items()}
+        data["idx"] = idx
         if self.transform is not None:
             data = self.transform(data)
         return data
