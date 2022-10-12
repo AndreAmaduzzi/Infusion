@@ -1,4 +1,5 @@
 import functools
+#from msilib.schema import Condition
 
 import torch.nn as nn
 import torch
@@ -178,12 +179,13 @@ class PVCNN2Base(nn.Module):
                  extra_feature_channels=3, width_multiplier=1, voxel_resolution_multiplier=1):
         super().__init__()
         assert extra_feature_channels >= 0
-        self.embed_dim = embed_dim
-        self.in_channels = extra_feature_channels + 3
+        self.embed_dim = embed_dim                      # default parse_args: embed_dim=64
+        self.in_channels = extra_feature_channels + 3   # PVD-init calls PVCNN2 with extra_feature_channels=0
 
+        # default parse_args: use_attn=True, dropout=0.1 
         sa_layers, sa_in_channels, channels_sa_features, _ = create_pointnet2_sa_components(
             sa_blocks=self.sa_blocks, extra_feature_channels=extra_feature_channels, with_se=True, embed_dim=embed_dim,
-            use_att=use_att, dropout=dropout,
+            use_att=use_att, dropout=dropout,   
             width_multiplier=width_multiplier, voxel_resolution_multiplier=voxel_resolution_multiplier
         )
         self.sa_layers = nn.ModuleList(sa_layers)
@@ -225,9 +227,13 @@ class PVCNN2Base(nn.Module):
         assert emb.shape == torch.Size([timesteps.shape[0], self.embed_dim])
         return emb
 
-    def forward(self, inputs, t):
-
-        temb =  self.embedf(self.get_timestep_embedding(t, inputs.device))[:,:,None].expand(-1,-1,inputs.shape[-1])
+    def forward(self, inputs, t, condition=None):           
+        # here, t.shape = [B]
+        temb =  self.embedf(self.get_timestep_embedding(t, inputs.device))[:,:,None].expand(-1,-1,inputs.shape[-1])     # temb: Bx64x2048 | condition: Bx64 | inputs: Bx3x2048
+        if condition is not None:
+            condition = condition.unsqueeze(-1)
+            temb = temb + condition # broadcasting should work 
+            #temb = temb + condition.expand(-1, -1, inputs.shape[-1]) 
 
         # inputs : [B, in_channels + S, N]
         coords, features = inputs[:, :3, :].contiguous(), inputs

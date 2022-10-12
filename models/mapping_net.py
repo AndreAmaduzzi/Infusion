@@ -22,7 +22,7 @@ class MappingNet(nn.Module):
         encoder_layers = TransformerEncoderLayer(d_model, nhead)
         self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
         self.cls_token = nn.Parameter(torch.zeros(1, 1, d_model), requires_grad=True)   # di quale dimensione deve essere il mio class token? io lo definisco cosi poi lo espando nel forwards
-        self.proj = nn.Linear(d_model, out_flatshape)               # from 1024 to 2048x3 (we do not consider batch size, which is the last dim of the Tensor)
+        self.proj = nn.Linear(d_model, 64)               # from 1024 to 64 (we do not consider batch size, which is the last dim of the Tensor)
         self.init_weights()
     
     def init_weights(self) -> None:
@@ -51,13 +51,21 @@ class MappingNet(nn.Module):
         Returns:
             output Tensor of shape [seq_len, batch_size, embed_size]
         """
-        src = torch.cat((self.cls_token.expand(-1, x.shape[1], -1), x), dim=0)  # x         [seq_length, batch_size, embed_size] =  [60, batch_size, 1024] 
-        src = self.pos_encoder(src)                                             # src       [seq_length+1, batch_size, 1024]     =  [61, batch_size, 1024] 
-        src = self.transformer_encoder(src, src_key_padding_mask=src_key_padding_mask)                           # src_mask  [batch_size, seq_length]
-        output = self.proj(src[0,:])
-        output = self.map_gaussian(output)
-        output = output.reshape(output.shape[0], 3, -1)
-        return output                                                           # output [batch_size, 6144] => [batch_size, 2048, 3]
+        print('input x: ', x.shape)
+        print('initial class token: ', self.cls_token.shape)
+        expanded_cls_token = self.cls_token.expand(x.shape[0], -1, -1)
+        print('expanded class token: ', expanded_cls_token.shape)
+        src = torch.cat([expanded_cls_token, x], dim=1)
+        print('src = concat between cls token and x: ', src.shape)
+        src = self.pos_encoder(src)          
+        print('src after positional encoder', src.shape)                                 
+        src = self.transformer_encoder(src, src_key_padding_mask=src_key_padding_mask.T)   
+        print('src after transformer encoder', src.shape)                       
+        output = self.proj(src[:,0,:])
+        print('ouput: ', output.shape, '\n')
+        #output = self.map_gaussian(output)
+        #output = output.reshape(output.shape[0], 3, -1)
+        return output                                               
 
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
