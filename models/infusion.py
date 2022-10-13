@@ -40,7 +40,7 @@ class Infusion(nn.Module):
         
         condition = self.mapping_net(text_embed, src_key_padding_mask)
         first_condition = condition[0].unsqueeze(0)
-        cloud_traj = self.pvd.gen_sample_traj(self.new_x_chain(test_shapes, condition.shape[0]).shape, test_shapes.device, freq=40, clip_denoised=False, condition=first_condition) # we get trajectory only for 1 shape
+        cloud_traj = self.pvd.gen_sample_traj(self.new_x_chain(test_shapes, 1).shape, test_shapes.device, freq=40, clip_denoised=False, condition=first_condition) # we get trajectory only for 1 shape
         return cloud_traj
         
 
