@@ -1,3 +1,4 @@
+from copy import copy
 from email.policy import default
 from types import new_class
 from typing import Iterator
@@ -181,7 +182,7 @@ def train(gpu, opt, output_dir, dset, noises_init):
     if should_diag:
         logger.info(opt)
 
-    optimizer= torch.optim.Adam(model.pvd.parameters(), lr=opt.lr, weight_decay=opt.decay, betas=(opt.beta1, 0.999))
+    optimizer= torch.optim.Adam(model.parameters(), lr=opt.lr, weight_decay=opt.decay, betas=(opt.beta1, 0.999))
 
     lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, opt.lr_gamma)
 
@@ -197,12 +198,6 @@ def train(gpu, opt, output_dir, dset, noises_init):
 
     def new_x_chain(x, num_chain):
         return torch.randn(num_chain, *x.shape[1:], device=x.device)
-    
-    for param_map in model.mapping_net.parameters():
-        param_map.requires_grad=True
-    
-    for param_pvd in model.pvd.parameters():
-        param_pvd.requires_grad=True
 
     for epoch in range(start_epoch, opt.n_epochs):
 
@@ -222,11 +217,12 @@ def train(gpu, opt, output_dir, dset, noises_init):
                 noises_batch = noises_init[data['idx']].transpose(1,2)  # TODO: check if idx are the same for both ShapeNet and Text2Shape
                 text_embed = data["text_embed"]
                 mask = data["key_pad_mask"]
-                text = data["text"]
+                text = data["text"]         
 
             '''
             train diffusion
             '''
+
             if opt.distribution_type == 'multi' or (opt.distribution_type is None and gpu is not None):
                 x = x.cuda()
                 noises_batch = noises_batch.cuda()
@@ -237,7 +233,7 @@ def train(gpu, opt, output_dir, dset, noises_init):
                 noises_batch = noises_batch.cuda()
                 text_embed = text_embed.cuda()
                 mask = mask.cuda()
-
+            
             model.mapping_net.train()
             model.pvd.train()
 
@@ -250,7 +246,10 @@ def train(gpu, opt, output_dir, dset, noises_init):
                     print(f'NaN values in mask')
             if torch.isnan(noises_batch).any():
                     print(f'NaN values in noises')
-            
+
+            sum_text_embed = torch.sum(text_embed, dim=2)
+            sum_text_embed = torch.sum(sum_text_embed, dim=1)
+            #print('is the text embed free from all zeros rows? ', torch.count_nonzero(sum_text_embed)==sum_text_embed.shape[0])
 
             loss = model.get_loss(x, noises_batch, text_embed, mask).mean()
             
@@ -259,44 +258,64 @@ def train(gpu, opt, output_dir, dset, noises_init):
             netpNorm_pvd, netgradNorm_pvd = getGradNorm(model.pvd)
             netpNorm_mapnet, netgradNorm_mapnet = getGradNorm(model.mapping_net)
 
-            for p in model.mapping_net.parameters():
-                param = p
-            
             if opt.grad_clip is not None:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), opt.grad_clip, error_if_nonfinite=True)
 
             optimizer.step()
             
-            print('CLS TOKEN: ', model.mapping_net.cls_token.data)
-            #print('PROJ WEIGHTS: ', model.mapping_net.proj.weight.data)
-            #print('PROJ BIAS: ', model.mapping_net.proj.bias.data)
+            for idx, p in enumerate(model.pvd.parameters()):
+                param = p
+                # check if PVD params are updated correctly
+                '''
+                if idx==10:
 
+                    if i==0:
+                        old_param_val = copy.deepcopy(param.data)   # param.data is a pointer! In this way, we only get its value
+                    else:
+                        new_param_val = copy.deepcopy(param.data)
+                        
+                        if torch.equal(old_param_val, new_param_val):
+                            print('PVD PARAM 10 not updated :( ')
+                        else:
+                            print('PVD PARAM 10 updated correctly :) ')
+                        old_param_val = new_param_val
+                '''
+                if torch.isnan(param.grad).any():
+                    print('Nan gradient in pvd param ')
+            
+            for p in model.mapping_net.parameters():
+                param = p
+                if torch.isnan(param.grad).any():
+                    print('Nan gradient in mapping net param ')
+
+            # check if weights of mapping net are updated correctly
+            '''
             if i==0:
-                old_cls_token = model.mapping_net.cls_token.data
-                #old_proj_weight = model.mapping_net.proj.weight.data
-                #old_proj_bias = model.mapping_net.proj.bias.data
+                old_cls_token = copy.deepcopy(model.mapping_net.cls_token.data)
+                old_proj_weight = copy.deepcopy(model.mapping_net.proj.weight.data)
+                old_proj_bias = copy.deepcopy(model.mapping_net.proj.bias.data)
             else:
-                new_cls_token = model.mapping_net.cls_token.data
-                #new_proj_weight = model.mapping_net.proj.weight.data
-                #new_proj_bias = model.mapping_net.proj.bias.data
+                new_cls_token = copy.deepcopy(model.mapping_net.cls_token.data)
+                new_proj_weight = copy.deepcopy(model.mapping_net.proj.weight.data)
+                new_proj_bias = copy.deepcopy(model.mapping_net.proj.bias.data)
                 
                 if torch.equal(new_cls_token, old_cls_token):
                     print('CLS TOKEN not updated :( ')
                 else:
                     print('CLS TOKEN updated correctly :) ')
-                #if torch.equal(new_proj_weight, old_proj_weight):
-                #    print('PROJ WEIGHT not updated :( ')
-                #else:
-                #    print('PROJ WEIGHT updated correctly :) ')
-                #if torch.equal(new_proj_bias, old_proj_bias):
-                #    print('PROJ BIAS not updated :( ')
-                #else:
-                #    print('PROJ BIAS updated correctly :) ')
+                if torch.equal(new_proj_weight, old_proj_weight):
+                    print('PROJ WEIGHT not updated :( ')
+                else:
+                    print('PROJ WEIGHT updated correctly :) ')
+                if torch.equal(new_proj_bias, old_proj_bias):
+                    print('PROJ BIAS not updated :( ')
+                else:
+                    print('PROJ BIAS updated correctly :) ')
                 
                 old_cls_token = new_cls_token
-                #old_proj_weight = new_proj_weight
-                #old_proj_bias = new_proj_bias
-
+                old_proj_weight = new_proj_weight
+                old_proj_bias = new_proj_bias
+            '''
             if i % opt.print_freq == 0 and should_diag:
 
                 logger.info('[{:>3d}/{:>3d}][{:>3d}/{:>3d}]    loss: {:>10.4f},    '
@@ -313,15 +332,13 @@ def train(gpu, opt, output_dir, dset, noises_init):
                     netpNorm_mapnet, netgradNorm_mapnet,
                         ))
                 
-        
         if (epoch + 1) % opt.vizIter == 0 and should_diag:
-            
+                
             logger.info('Generating clouds for visualization on training set...')
 
             model.mapping_net.eval()
             model.pvd.eval()
             with torch.no_grad():
-
                 x_gen_eval = model.get_clouds(text_embed, mask, x)
                 x_gen_list = model.get_cloud_traj(text_embed, mask, x)
                 x_gen_all = torch.cat(x_gen_list, dim=0)
@@ -349,7 +366,7 @@ def train(gpu, opt, output_dir, dset, noises_init):
 
             visualize_pointcloud_batch('%s/epoch_%03d_x.png' % (outf_syn, epoch), x.transpose(1, 2), None,
                                     None,
-                                    None)            
+                                    None)   
 
         if (epoch + 1) % opt.diagIter == 0 and should_diag:
 
@@ -493,9 +510,9 @@ def parse_args():
                         help='GPU id to use. None means using all available GPUs.')
 
     # evaluation params
-    parser.add_argument('--saveIter', default=12, help='unit: epoch')  
-    parser.add_argument('--diagIter', default=2, help='unit: epoch')
-    parser.add_argument('--vizIter', default=2, help='unit: epoch')
+    parser.add_argument('--saveIter', default=100, help='unit: epoch')  
+    parser.add_argument('--diagIter', default=50, help='unit: epoch')
+    parser.add_argument('--vizIter', default=50, help='unit: epoch')
     parser.add_argument('--print_freq', default=100, help='unit: iter')
     parser.add_argument('--manualSeed', default=42, type=int, help='random seed')
 

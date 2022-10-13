@@ -51,20 +51,12 @@ class MappingNet(nn.Module):
         Returns:
             output Tensor of shape [seq_len, batch_size, embed_size]
         """
-        print('input x: ', x.shape)
-        print('initial class token: ', self.cls_token.shape)
         expanded_cls_token = self.cls_token.expand(x.shape[0], -1, -1)
-        print('expanded class token: ', expanded_cls_token.shape)
         src = torch.cat([expanded_cls_token, x], dim=1)
-        print('src = concat between cls token and x: ', src.shape)
-        src = self.pos_encoder(src)          
-        print('src after positional encoder', src.shape)                                 
-        src = self.transformer_encoder(src, src_key_padding_mask=src_key_padding_mask.T)   
-        print('src after transformer encoder', src.shape)                       
+        src_pe = self.pos_encoder(src)
+        src = self.transformer_encoder(src_pe)   
         output = self.proj(src[:,0,:])
-        print('ouput: ', output.shape, '\n')
-        #output = self.map_gaussian(output)
-        #output = output.reshape(output.shape[0], 3, -1)
+
         return output                                               
 
 class PositionalEncoding(nn.Module):
@@ -83,5 +75,6 @@ class PositionalEncoding(nn.Module):
         Args:
             x: Tensor, shape [seq_len, batch_size, embedding_dim]
         """
-        x = x + self.pe[:x.size(0)]
+        # (x>0): we ensure that the padding elements are not added to the pe   
+        x = x + (x!=0) * self.pe[:x.size(0)] 
         return self.dropout(x)
