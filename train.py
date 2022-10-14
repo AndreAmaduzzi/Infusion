@@ -1,4 +1,4 @@
-from copy import copy
+import copy
 from email.policy import default
 from types import new_class
 from typing import Iterator
@@ -23,7 +23,10 @@ from tqdm import tqdm
 from torchsummary import summary
 from datetime import datetime
 import os
+import math
 from dataset.shapenet_data_pc import ShapeNet15kPointClouds
+sys.path.append('../diffusion-text-shape/')
+from evaluation import evaluation_metrics
 
 def set_seed(opt):
     if opt.manualSeed is None:
@@ -87,6 +90,7 @@ def get_text2shape_dataset(dataroot, category):
         max_length=60,
         scale_mode="shape_unit"
         )
+
     return tr_dataset, val_dataset
     
 def get_dataloader(opt, train_dataset, val_dataset=None):
@@ -121,7 +125,7 @@ def get_dataloader(opt, train_dataset, val_dataset=None):
 
     return train_dataloader, val_dataloader, train_sampler, val_samples
 
-def train(gpu, opt, output_dir, dset, noises_init):
+def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
 
     set_seed(opt)
     logger = setup_logging(output_dir)
@@ -149,8 +153,10 @@ def train(gpu, opt, output_dir, dset, noises_init):
         opt.saveIter =  int(opt.saveIter / opt.ngpus_per_node)
         opt.diagIter = int(opt.diagIter / opt.ngpus_per_node)
         opt.vizIter = int(opt.vizIter / opt.ngpus_per_node)
+    
+    writer = torch.utils.tensorboard.SummaryWriter(output_dir)
         
-    train_dataloader, val_dataloader, train_sampler, val_sampler = get_dataloader(opt, dset, None)
+    train_dataloader, val_dataloader, train_sampler, val_sampler = get_dataloader(opt, train_dset, val_dset)
 
     '''
     create networks
@@ -203,8 +209,6 @@ def train(gpu, opt, output_dir, dset, noises_init):
 
         if opt.distribution_type == 'multi':
             train_sampler.set_epoch(epoch)
-
-        lr_scheduler.step(epoch)
 
         for i, data in enumerate(train_dataloader):
             if opt.train_ds == 'shapenet':
@@ -262,13 +266,18 @@ def train(gpu, opt, output_dir, dset, noises_init):
                 torch.nn.utils.clip_grad_norm_(model.parameters(), opt.grad_clip, error_if_nonfinite=True)
 
             optimizer.step()
+            lr_scheduler.step(epoch)
+
+            writer.add_scalar('train/loss', loss, i)
+            writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], i)
+            writer.add_scalar('train/grad_pvd', netgradNorm_mapnet, i)
+            writer.add_scalar('train/grad_mapping_net', netgradNorm_pvd, i)
+            writer.flush()
             
             for idx, p in enumerate(model.pvd.parameters()):
                 param = p
                 # check if PVD params are updated correctly
-                '''
                 if idx==10:
-
                     if i==0:
                         old_param_val = copy.deepcopy(param.data)   # param.data is a pointer! In this way, we only get its value
                     else:
@@ -279,7 +288,7 @@ def train(gpu, opt, output_dir, dset, noises_init):
                         else:
                             print('PVD PARAM 10 updated correctly :) ')
                         old_param_val = new_param_val
-                '''
+                
                 if torch.isnan(param.grad).any():
                     print('Nan gradient in pvd param ')
             
@@ -289,7 +298,6 @@ def train(gpu, opt, output_dir, dset, noises_init):
                     print('Nan gradient in mapping net param ')
 
             # check if weights of mapping net are updated correctly
-            '''
             if i==0:
                 old_cls_token = copy.deepcopy(model.mapping_net.cls_token.data)
                 old_proj_weight = copy.deepcopy(model.mapping_net.proj.weight.data)
@@ -315,7 +323,7 @@ def train(gpu, opt, output_dir, dset, noises_init):
                 old_cls_token = new_cls_token
                 old_proj_weight = new_proj_weight
                 old_proj_bias = new_proj_bias
-            '''
+            
             if i % opt.print_freq == 0 and should_diag:
 
                 logger.info('[{:>3d}/{:>3d}][{:>3d}/{:>3d}]    loss: {:>10.4f},    '
@@ -347,6 +355,41 @@ def train(gpu, opt, output_dir, dset, noises_init):
 
                 gen_eval_range = [x_gen_eval.min().item(), x_gen_eval.max().item()]
 
+            logger.info('      [{:>3d}/{:>3d}]  '
+                            'eval_gen_range: [{:>10.4f}, {:>10.4f}]     '
+                            'eval_gen_stats: [mean={:>10.4f}, std={:>10.4f}]      '
+                    .format(
+                    epoch, opt.n_epochs,
+                    *gen_eval_range, *gen_stats,
+                ))
+
+            visualize_pointcloud_batch('%s/epoch_%03d_samples_eval_train.png' % (outf_syn, epoch),
+                                    x_gen_eval.transpose(1, 2), None, None,
+                                    None)
+
+            visualize_pointcloud_batch('%s/epoch_%03d_samples_eval_all_train.png' % (outf_syn, epoch),
+                                    x_gen_all.transpose(1, 2), None,
+                                    None,
+                                    None)
+
+            visualize_pointcloud_batch('%s/epoch_%03d_x_train.png' % (outf_syn, epoch), x.transpose(1, 2), None,
+                                    None,
+                                    None)
+
+            logger.info('Generating clouds for visualization on validation set...')
+            with torch.no_grad():
+                val_batch = next(iter(val_dataloader))
+                text_embed_val = val_batch["text_embed"].cuda()
+                mask_val = val_batch["key_pad_mask"].cuda()
+                x_val = val_batch['pointcloud'].transpose(1,2).cuda() 
+                x_gen_eval = model.get_clouds(text_embed_val, mask_val, x_val)
+                x_gen_list = model.get_cloud_traj(text_embed_val, mask_val, x_val)
+                x_gen_all = torch.cat(x_gen_list, dim=0)
+                
+                gen_stats = [x_gen_eval.mean(), x_gen_eval.std()]
+
+                gen_eval_range = [x_gen_eval.min().item(), x_gen_eval.max().item()]
+
                 logger.info('      [{:>3d}/{:>3d}]  '
                             'eval_gen_range: [{:>10.4f}, {:>10.4f}]     '
                             'eval_gen_stats: [mean={:>10.4f}, std={:>10.4f}]      '
@@ -355,18 +398,27 @@ def train(gpu, opt, output_dir, dset, noises_init):
                     *gen_eval_range, *gen_stats,
                 ))
 
-            visualize_pointcloud_batch('%s/epoch_%03d_samples_eval.png' % (outf_syn, epoch),
+            visualize_pointcloud_batch('%s/epoch_%03d_samples_eval_valid.png' % (outf_syn, epoch),
                                     x_gen_eval.transpose(1, 2), None, None,
                                     None)
 
-            visualize_pointcloud_batch('%s/epoch_%03d_samples_eval_all.png' % (outf_syn, epoch),
+            visualize_pointcloud_batch('%s/epoch_%03d_samples_eval_all_valid.png' % (outf_syn, epoch),
                                     x_gen_all.transpose(1, 2), None,
                                     None,
                                     None)
 
-            visualize_pointcloud_batch('%s/epoch_%03d_x.png' % (outf_syn, epoch), x.transpose(1, 2), None,
+            visualize_pointcloud_batch('%s/epoch_%03d_x_valid.png' % (outf_syn, epoch), x.transpose(1, 2), None,
                                     None,
-                                    None)   
+                                    None)
+
+            visualize_pointcloud_batch('%s/epoch_%03d_samples_eval_all_train.png' % (outf_syn, epoch),
+                                    x_gen_all.transpose(1, 2), None,
+                                    None,
+                                    None)
+
+            visualize_pointcloud_batch('%s/epoch_%03d_x_train.png' % (outf_syn, epoch), x.transpose(1, 2), None,
+                                    None,
+                                    None)
 
         if (epoch + 1) % opt.diagIter == 0 and should_diag:
 
@@ -409,6 +461,87 @@ def train(gpu, opt, output_dir, dset, noises_init):
                 model.load_state_dict(
                     torch.load('%s/epoch_%d.pth' % (output_dir, epoch), map_location=map_location)['model_state'])
 
+        if (epoch + 1 ) % opt.valIter == 0 and should_diag:
+
+            val_folder = os.path.join(output_dir,'validation')
+            # build reference histogram for validation set
+            ref_hist = dict()
+            for i in range(len(val_dset)):
+                if val_dset[i]["model_id"] in ref_hist.keys():
+                    ref_hist[val_dset[i]["model_id"]] += 1
+                else:
+                    ref_hist[val_dset[i]["model_id"]] = 1
+
+            model.pvd.eval()
+            model.mapping_net.eval()
+            gen_pcs=[]
+            ref_pcs=[]
+            texts=[]
+            model_ids=[]
+            for i in tqdm(range(0, math.ceil(opt.val_size / opt.bs)), 'Generate'):
+                with torch.no_grad():
+                    val_batch = next(iter(val_dataloader))
+                    text_embed_val = val_batch["text_embed"].cuda()
+                    mask_val = val_batch["key_pad_mask"].cuda()
+                    x_val = val_batch['pointcloud'].transpose(1,2).cuda() 
+                    x_gen_eval = model.get_clouds(text_embed_val, mask_val, x_val)
+                    for text in val_batch["text"]:
+                        texts.append(text)
+                    for model_id in val_batch["model_id"]:
+                        model_ids.append(model_id)
+                    # transpose shapes because metrics want (2048, 3) instead of (3, 2048)
+                    x_gen_eval = x_gen_eval.transpose(1,2)
+                    x_val = x_val.transpose(1,2)
+                    gen_pcs.append(x_gen_eval.detach().cpu())
+                    ref_pcs.append(x_val.detach().cpu())
+            gen_pcs = torch.cat(gen_pcs, dim=0)[:opt.val_size]
+            ref_pcs = torch.cat(ref_pcs, dim=0)[:opt.val_size]
+
+            texts = texts[:opt.val_size]
+            model_ids = model_ids[:opt.val_size]
+            gen_pcs = normalize_clouds_for_validation(gen_pcs, mode='shape_bbox', logger=logger)
+            ref_pcs = normalize_clouds_for_validation(ref_pcs, mode='shape_bbox', logger=logger)
+
+            print('size of ref pcs: ', ref_pcs.shape)
+            print('size of gen pcs: ', gen_pcs.shape)
+            print('len of gen texts: ', len(texts))
+
+            # Save
+            logger.info('Saving point clouds and text...')
+            np.save(os.path.join(val_folder, 'out.npy'), gen_pcs.numpy())
+            np.save(os.path.join(val_folder, 'ref.npy'), ref_pcs.numpy())
+            count=0
+            with open(os.path.join(val_folder, 'texts.txt'), 'w') as f:
+                for text in texts:
+                    f.write(text + "\n")
+                    count +=1
+            with open(os.path.join(val_folder, 'model_ids.txt'), 'w') as f:
+                for model_id in model_ids:
+                    f.write(f"{model_id}\n")
+
+            # Compute metrics
+            with torch.no_grad():
+                results = evaluation_metrics.compute_all_metrics(gen_pcs.cuda(), ref_pcs.cuda(), opt.bs, model_ids=model_ids, texts=texts, save_dir=val_folder, ref_hist=ref_hist)
+                results = {k:v.item() for k, v in results.items()}
+                jsd = evaluation_metrics.jsd_between_point_cloud_sets(gen_pcs.cpu().numpy(), ref_pcs.cpu().numpy())
+                results['jsd'] = jsd
+
+            for k, v in results.items():
+                logger.info('%s: %.12f' % (k, v))
+            
+            # Display metrics on Tensorboard
+            # CD related metrics
+            writer.add_scalar('test/Coverage_CD', results['lgan_cov-CD'], global_step=i)
+            writer.add_scalar('test/MMD_CD', results['lgan_mmd-CD'], global_step=i)
+            #writer.add_scalar('test/1NN_CD', results['1-NN-CD-acc'], global_step=i)
+            # JSD
+            writer.add_scalar('test/JSD', results['jsd'], global_step=i)
+            writer.flush()
+
+            logger.info('[Test] Coverage  | CD %.6f | EMD n/a' % (results['lgan_cov-CD'], ))
+            logger.info('[Test] MinMatDis | CD %.6f | EMD n/a' % (results['lgan_mmd-CD'], ))
+            logger.info('[Test] JsnShnDis | %.6f ' % (results['jsd']))
+
     torch.distributed.destroy_process_group()
 
 def main():
@@ -442,7 +575,7 @@ def main():
         opt.world_size = opt.ngpus_per_node * opt.world_size
         torch.multiprocessing.spawn(train, nprocs=opt.ngpus_per_node, args=(opt, opt.output_dir, noises_init))
     else:
-        train(opt.gpu, opt, opt.output_dir, train_dataset, noises_init)
+        train(opt.gpu, opt, opt.output_dir, train_dataset, val_dataset, noises_init)
 
 def parse_args():
 
@@ -451,8 +584,8 @@ def parse_args():
     parser.add_argument('--train_ds', default='text2shape', choices=['shapenet', 'text2shape'], help='dataset to use for training')
     parser.add_argument('--sn_dataroot', default='../PVD/data/ShapeNetCore.v2.PC15k/', help="dataroot of ShapeNet")
     parser.add_argument('--t2s_dataroot', default='/media/data2/aamaduzzi/datasets/Text2Shape/', help="dataroot of ShapeNet")
-    parser.add_argument('--category', default='chair')
-    parser.add_argument('--bs', type=int, default=32, help='input batch size')
+    parser.add_argument('--category', default='all')
+    parser.add_argument('--bs', type=int, default=64, help='input batch size')
     parser.add_argument('--workers', type=int, default=16, help='workers')
     parser.add_argument('--n_epochs', type=int, default=10000, help='number of epochs to train for')
     parser.add_argument('--nc', default=3)
@@ -510,10 +643,12 @@ def parse_args():
                         help='GPU id to use. None means using all available GPUs.')
 
     # evaluation params
-    parser.add_argument('--saveIter', default=100, help='unit: epoch')  
-    parser.add_argument('--diagIter', default=50, help='unit: epoch')
-    parser.add_argument('--vizIter', default=50, help='unit: epoch')
-    parser.add_argument('--print_freq', default=100, help='unit: iter')
+    parser.add_argument('--saveIter', default=50, help='unit: epoch when checkpoint is saved')  
+    parser.add_argument('--diagIter', default=100, help='unit: epoch when diagnosis is done')
+    parser.add_argument('--vizIter', default=100, help='unit: epoch when visualization is done')
+    parser.add_argument('--valIter', default=100, help='unit: epoch when validation is done')
+    parser.add_argument('--val_size', default=1000, help='number of clouds evaluated during validation')
+    parser.add_argument('--print_freq', default=100, help='unit: iter where gradients and step are printed')
     parser.add_argument('--manualSeed', default=42, type=int, help='random seed')
 
 
