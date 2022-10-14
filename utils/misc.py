@@ -5,6 +5,7 @@ import sys
 import torch
 import matplotlib.pyplot as plt
 import numpy as np
+from tqdm import tqdm
 
 def setup_logging(output_dir):
     log_format = logging.Formatter("%(asctime)s : %(message)s")
@@ -30,6 +31,25 @@ def normalize_cloud(pcd: torch.Tensor):
     new_pcd = (pcd - bc) / torch.unsqueeze(max_dist, dim=2)
 
     return new_pcd
+
+def normalize_clouds_for_validation(pcs, mode, logger):
+    if mode is None:
+        logger.info('Will not normalize point clouds.')
+        return pcs
+    logger.info('Normalization mode: %s' % mode)
+    for i in tqdm(range(pcs.size(0)), desc='Normalize'):
+        pc = pcs[i]
+        if mode == 'shape_unit':
+            shift = pc.mean(dim=0).reshape(1, 3)
+            scale = pc.flatten().std().reshape(1, 1)
+        elif mode == 'shape_bbox':
+            pc_max, _ = pc.max(dim=0, keepdim=True) # (1, 3)
+            pc_min, _ = pc.min(dim=0, keepdim=True) # (1, 3)
+            shift = ((pc_min + pc_max) / 2).view(1, 3)
+            scale = (pc_max - pc_min).max().reshape(1, 1) / 2
+        pc = (pc - shift) / scale
+        pcs[i] = pc
+    return pcs
 
 def visualize_pointcloud_batch(path, pointclouds, pred_labels, labels, categories, vis_label=False, target=None,  elev=30, azim=225):
     batch_size = len(pointclouds)
