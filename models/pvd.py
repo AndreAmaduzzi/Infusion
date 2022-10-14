@@ -292,7 +292,7 @@ class GaussianDiffusion:
                 t_b = torch.empty(B, dtype=torch.int64, device=x_start.device).fill_(t)
                 # Calculate VLB term at the current timestep
                 new_vals_b, pred_xstart = self._vb_terms_bpd(
-                    denoise_fn, data_start=x_start, data_t=self.q_sample(x_start=x_start, t=t_b), t=t_b,
+                    denoise_fn, data_start=x_start, condition=condition, data_t=self.q_sample(x_start=x_start, t=t_b), t=t_b,
                     clip_denoised=clip_denoised, return_pred_xstart=True)
                 # MSE for progressive prediction loss
                 assert pred_xstart.shape == x_start.shape
