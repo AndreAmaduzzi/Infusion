@@ -82,19 +82,16 @@ def nested_from_batch(input: torch.Tensor):
     list_tensor=[]
     # convert text embed batch to nested tensor
     for el in input:    # el: [60, 1024]
-        # check if all the zeros are at the end of the text embedding
         # sum all 1024 numbers for each token
-        sum_el = torch.sum(el, dim=1) # i get 60 numbers
+        sum_el = torch.sum(el, dim=1) # I get 60 numbers
         # get index of first zero element of the tensor
         non_zero_index = sum_el[sum_el!=0] # shape: [<n of non zero elements>] => [22]
-        print('non zero index: ', non_zero_index.shape[0])
         new_el = el[0:non_zero_index.shape[0]] # new_el: example [22, 1024]
         # check if new_el contains zeros
         sum_new_el = torch.sum(new_el, dim=1)
         non_zeros = torch.count_nonzero(sum_new_el)
         assert non_zeros==new_el.shape[0]
         list_tensor.append(new_el)
-        print('================')
     
     # define nested tensor from list
     nested = torch.nested_tensor(list_tensor, device=torch.device('cuda'))

@@ -7,7 +7,7 @@ from models.pvd import *
 class Infusion(nn.Module):
     def __init__(self, opt):
         super().__init__()
-        self.mapping_net = MappingNet(opt.dmodel, opt.nhead, opt.nlayers, opt.out_flatshape) # TODO: modify mapping_net to get desired output from it
+        self.mapping_net = MappingNet(opt.dmodel, opt.nhead, opt.nlayers, opt.use_nested) # TODO: modify mapping_net to get desired output from it
         betas = get_betas(opt.schedule_type, opt.beta_start, opt.beta_end, opt.time_num)
         self.pvd = PVD(opt, betas, opt.loss_type, opt.model_mean_type, opt.model_var_type)
 

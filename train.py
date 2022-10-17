@@ -266,7 +266,7 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
                 torch.nn.utils.clip_grad_norm_(model.parameters(), opt.grad_clip, error_if_nonfinite=True)
 
             optimizer.step()
-            lr_scheduler.step(epoch)
+            lr_scheduler.step()
 
             writer.add_scalar('train/loss', loss, i)
             writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], i)
@@ -277,6 +277,7 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
             for idx, p in enumerate(model.pvd.parameters()):
                 param = p
                 # check if PVD params are updated correctly
+                '''
                 if idx==10:
                     if i==0:
                         old_param_val = copy.deepcopy(param.data)   # param.data is a pointer! In this way, we only get its value
@@ -288,7 +289,7 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
                         else:
                             print('PVD PARAM 10 updated correctly :) ')
                         old_param_val = new_param_val
-                
+                '''
                 if torch.isnan(param.grad).any():
                     print('Nan gradient in pvd param ')
             
@@ -298,6 +299,7 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
                     print('Nan gradient in mapping net param ')
 
             # check if weights of mapping net are updated correctly
+            '''
             if i==0:
                 old_cls_token = copy.deepcopy(model.mapping_net.cls_token.data)
                 old_proj_weight = copy.deepcopy(model.mapping_net.proj.weight.data)
@@ -323,7 +325,7 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
                 old_cls_token = new_cls_token
                 old_proj_weight = new_proj_weight
                 old_proj_bias = new_proj_bias
-            
+            '''
             if i % opt.print_freq == 0 and should_diag:
 
                 logger.info('[{:>3d}/{:>3d}][{:>3d}/{:>3d}]    loss: {:>10.4f},    '
@@ -590,7 +592,7 @@ def parse_args():
     parser.add_argument('--n_epochs', type=int, default=10000, help='number of epochs to train for')
     parser.add_argument('--nc', default=3)
     parser.add_argument('--npoints', default=2048)
-    parser.add_argument('--output_dir', type=str, default="./exps/exp_7", help='directory for experiments logging',)
+    parser.add_argument('--output_dir', type=str, default="./exps/exp_8", help='directory for experiments logging',)
 
 
     # MappingNet
@@ -598,6 +600,7 @@ def parse_args():
     parser.add_argument('--nhead', type=int, help='n of multi-attention heads', default=8)
     parser.add_argument('--nlayers', type=int, help='n of encoder layers', default=6)
     parser.add_argument('--out_flatshape', type=int, help='flattened output shape', default=2048*3)
+    parser.add_argument('--use_nested', action='store_true')    # if not specified, False. Otherwise, True.
 
     # PVD
     # noise schedule

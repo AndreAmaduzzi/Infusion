@@ -5,6 +5,7 @@ from torch.nn import TransformerEncoder, TransformerEncoderLayer
 import torch.distributions as distr
 
 from models.pvd import GaussianDiffusion
+from utils.misc import nested_from_batch
 
 '''params'''
 ''''
@@ -15,8 +16,9 @@ nlayers = 6 #la metà se troppo grande
 
 class MappingNet(nn.Module):
     def __init__(self, d_model: int, nhead: int,
-                 nlayers: int, out_flatshape: int, dropout: float = 0.5):
+                 nlayers: int, use_nested: bool = False, dropout: float = 0.5):
         super().__init__()
+        self.use_nested = use_nested
         self.model_type = 'Transformer'
         self.pos_encoder = PositionalEncoding(d_model, dropout)
         encoder_layers = TransformerEncoderLayer(d_model, nhead)
@@ -44,17 +46,20 @@ class MappingNet(nn.Module):
 
         return gaussian_pts
 
-    def forward(self, x: Tensor, src_key_padding_mask: Tensor) -> Tensor:
+    def forward(self, x: Tensor, src_key_padding_mask: Tensor, ) -> Tensor:
         """
         Args:
             x: Tensor, shape [seq_length, batch_size, embed_size] 
         Returns:
             output Tensor of shape [seq_len, batch_size, embed_size]
         """
+
         expanded_cls_token = self.cls_token.expand(x.shape[0], -1, -1)
         src = torch.cat([expanded_cls_token, x], dim=1)
         src_pe = self.pos_encoder(src)
-        src = self.transformer_encoder(src_pe)   
+        if self.use_nested:
+            src_pe = nested_from_batch(src_pe)
+        src = self.transformer_encoder(src_pe) 
         output = self.proj(src[:,0,:])
 
         return output                                               
