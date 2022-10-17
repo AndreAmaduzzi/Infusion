@@ -20,6 +20,7 @@ class TrilinearDevoxelization(Function):
         B, C = features.shape[:2]
         features = features.contiguous().view(B, C, -1)
         coords = coords.contiguous()
+        is_training = True
         outs, inds, wgts = _backend.trilinear_devoxelize_forward(resolution, is_training, coords, features)
         if is_training:
             ctx.save_for_backward(inds, wgts)

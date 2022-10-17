@@ -187,8 +187,14 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
 
     if should_diag:
         logger.info(opt)
-
-    optimizer= torch.optim.Adam(model.parameters(), lr=opt.lr, weight_decay=opt.decay, betas=(opt.beta1, 0.999))
+    
+    if opt.pvd_model != '':
+        logger.info("Loading pre-trained PVD...")
+        ckpt_pvd = torch.load(opt.pvd_model)
+        model.pvd.load_state_dict(ckpt_pvd['model_state'])
+        optimizer= torch.optim.Adam(model.mapping_net.parameters(), lr=opt.lr, weight_decay=opt.decay, betas=(opt.beta1, 0.999)) #optimize only Mapping_net params
+    else:
+        optimizer= torch.optim.Adam(model.parameters(), lr=opt.lr, weight_decay=opt.decay, betas=(opt.beta1, 0.999))
 
     lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, opt.lr_gamma)
 
@@ -239,7 +245,8 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
                 mask = mask.cuda()
             
             model.mapping_net.train()
-            model.pvd.train()
+            if opt.pvd_model != '':
+                model.pvd.eval()
 
             # check input values
             if torch.isnan(x).any():
@@ -561,6 +568,8 @@ def main():
         train_dataset, val_dataset = get_shapenet_dataset(opt.sn_dataroot, opt.npoints, opt.category)
         noises_init = torch.randn(len(train_dataset), opt.npoints, opt.nc)
     elif opt.train_ds == 'text2shape':
+        if opt.pvd_model != '':
+            opt.category = "chair"
         train_dataset, val_dataset = get_text2shape_dataset(opt.t2s_dataroot, opt.category)
         noises_init = torch.randn(len(train_dataset), opt.npoints, opt.nc)
     else:
@@ -624,8 +633,9 @@ def parse_args():
     parser.add_argument('--grad_clip', type=float, default=None, help='weight decay for EBM')
     parser.add_argument('--lr_gamma', type=float, default=0.998, help='lr decay for EBM')
 
-    # path to checkpt of trained model
+    # path to checkpt of trained model and PVD model
     parser.add_argument('--model', default='', help="path to model (to continue training)")
+    parser.add_argument('--pvd_model', default='../PVD/ckpt/generation/chair_1799.pth', help="path to PVD model (to freeze PVD")
 
 
     # distributed training
