@@ -118,7 +118,7 @@ class CrossAttention(nn.Module):
         h = self.out(h)
 
         x = h + x
-
+ 
         x = self.nonlin(self.norm(x))
 
         return x
@@ -130,7 +130,7 @@ class PVConv(nn.Module):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
-        self.context_dim = 1024 # max length of current batch tokens
+        self.context_dim = 1024 # length of text embeddings
         self.kernel_size = kernel_size
         self.resolution = resolution
 
@@ -146,11 +146,12 @@ class PVConv(nn.Module):
             nn.GroupNorm(num_groups=8, num_channels=out_channels),
             SelfAttention(out_channels, 8) if attention else Swish(),
         ]
-        if with_se:
-            voxel_layers.append(SE3d(out_channels, use_relu=with_se_relu))
 
         if attention:
             voxel_layers.append(CrossAttention(out_channels, 8, self.context_dim))
+
+        if with_se:
+            voxel_layers.append(SE3d(out_channels, use_relu=with_se_relu))
 
         self.voxel_layers = ContextSequential(*voxel_layers)
         self.point_features = SharedMLP(in_channels, out_channels)
