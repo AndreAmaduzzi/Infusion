@@ -14,7 +14,6 @@ from torch.utils.tensorboard import SummaryWriter
 from utils.misc import *
 from models import *
 from models.infusion import Infusion
-from models.mapping_net import MappingNet
 from dataset.text2shape_dataset import Text2Shape
 from dataset.utils import *
 from pycarus.metrics.chamfer_distance import chamfer
@@ -76,7 +75,8 @@ def get_text2shape_dataset(dataroot, category):
         conditional_setup=True,
         language_model="t5-11b",
         lowercase_text=False,
-        max_length=60,
+        max_length=77,
+        padding=True,
         scale_mode="shape_unit")
 
     val_dataset = Text2Shape(root=Path(dataroot),
@@ -87,7 +87,8 @@ def get_text2shape_dataset(dataroot, category):
         conditional_setup=True,
         language_model="t5-11b",
         lowercase_text=False,
-        max_length=60,
+        max_length=77,
+        padding=True,
         scale_mode="shape_unit"
         )
 
@@ -188,13 +189,7 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
     if should_diag:
         logger.info(opt)
     
-    if opt.pvd_model != '':
-        logger.info("Loading pre-trained PVD...")
-        ckpt_pvd = torch.load(opt.pvd_model)
-        model.pvd.load_state_dict(ckpt_pvd['model_state'])
-        optimizer= torch.optim.Adam(model.mapping_net.parameters(), lr=opt.lr, weight_decay=opt.decay, betas=(opt.beta1, 0.999)) #optimize only Mapping_net params
-    else:
-        optimizer= torch.optim.Adam(model.parameters(), lr=opt.lr, weight_decay=opt.decay, betas=(opt.beta1, 0.999))
+    optimizer= torch.optim.Adam(model.parameters(), lr=opt.lr, weight_decay=opt.decay, betas=(opt.beta1, 0.999))
 
     lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, opt.lr_gamma)
 
@@ -202,8 +197,6 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
         ckpt = torch.load(opt.model)
         model.load_state_dict(ckpt['model_state'])
         optimizer.load_state_dict(ckpt['optimizer_state'])
-
-    if opt.model != '':
         start_epoch = torch.load(opt.model)['epoch'] + 1
     else:
         start_epoch = 0
@@ -221,12 +214,10 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
                 x = data['train_points'].transpose(1,2)                 # TODO: check if pointclouds have the same size for both ShapeNet and Text2Shape 
                 noises_batch = noises_init[data['idx']].transpose(1,2)  # TODO: check if idx are the same for both ShapeNet and Text2Shape
                 #text_embed = data["text_embed"]
-                #mask = data["key_pad_mask"]
             elif opt.train_ds == 'text2shape':
                 x = data['pointcloud'].transpose(1,2)                   # TODO: check if pointclouds have the same size for both ShapeNet and Text2Shape          
                 noises_batch = noises_init[data['idx']].transpose(1,2)  # TODO: check if idx are the same for both ShapeNet and Text2Shape
                 text_embed = data["text_embed"]
-                mask = data["key_pad_mask"]
                 text = data["text"]         
 
             '''
@@ -237,14 +228,11 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
                 x = x.cuda()
                 noises_batch = noises_batch.cuda()
                 text_embed = text_embed.cuda()
-                mask = mask.cuda()
             elif opt.distribution_type == 'single':
                 x = x.cuda()
                 noises_batch = noises_batch.cuda()
                 text_embed = text_embed.cuda()
-                mask = mask.cuda()
             
-            model.mapping_net.train()
             if opt.pvd_model != '':
                 model.pvd.eval()
 
@@ -253,8 +241,6 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
                     print(f'NaN values in x')
             if torch.isnan(text_embed).any():
                     print(f'NaN values in text embed')
-            if torch.isnan(mask).any():
-                    print(f'NaN values in mask')
             if torch.isnan(noises_batch).any():
                     print(f'NaN values in noises')
 
@@ -262,12 +248,12 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
             sum_text_embed = torch.sum(sum_text_embed, dim=1)
             #print('is the text embed free from all zeros rows? ', torch.count_nonzero(sum_text_embed)==sum_text_embed.shape[0])
 
-            loss = model.get_loss(x, noises_batch, text_embed, mask).mean()
+            model.pvd.train()
+            loss = model.get_loss(x, noises_batch, text_embed).mean()
             
-            optimizer.zero_grad()
+            optimizer.zero_grad()   # this command sets to zero the gradient of the params to optimize
             loss.backward()
-            netpNorm_pvd, netgradNorm_pvd = getGradNorm(model.pvd)
-            netpNorm_mapnet, netgradNorm_mapnet = getGradNorm(model.mapping_net)
+            netpNorm, netgradNorm = getGradNorm(model)
 
             if opt.grad_clip is not None:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), opt.grad_clip, error_if_nonfinite=True)
@@ -277,11 +263,10 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
 
             writer.add_scalar('train/loss', loss, i)
             writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], i)
-            writer.add_scalar('train/grad_pvd', netgradNorm_mapnet, i)
-            writer.add_scalar('train/grad_mapping_net', netgradNorm_pvd, i)
+            writer.add_scalar('train/grad', netgradNorm, i)
             writer.flush()
             
-            for idx, p in enumerate(model.pvd.parameters()):
+            for idx, p in enumerate(model.parameters()):
                 param = p
                 # check if PVD params are updated correctly
                 '''
@@ -299,65 +284,23 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
                 '''
                 if torch.isnan(param.grad).any():
                     print('Nan gradient in pvd param ')
-            
-            for p in model.mapping_net.parameters():
-                param = p
-                if torch.isnan(param.grad).any():
-                    print('Nan gradient in mapping net param ')
 
-            # check if weights of mapping net are updated correctly
-            '''
-            if i==0:
-                old_cls_token = copy.deepcopy(model.mapping_net.cls_token.data)
-                old_proj_weight = copy.deepcopy(model.mapping_net.proj.weight.data)
-                old_proj_bias = copy.deepcopy(model.mapping_net.proj.bias.data)
-            else:
-                new_cls_token = copy.deepcopy(model.mapping_net.cls_token.data)
-                new_proj_weight = copy.deepcopy(model.mapping_net.proj.weight.data)
-                new_proj_bias = copy.deepcopy(model.mapping_net.proj.bias.data)
-                
-                if torch.equal(new_cls_token, old_cls_token):
-                    print('CLS TOKEN not updated :( ')
-                else:
-                    print('CLS TOKEN updated correctly :) ')
-                if torch.equal(new_proj_weight, old_proj_weight):
-                    print('PROJ WEIGHT not updated :( ')
-                else:
-                    print('PROJ WEIGHT updated correctly :) ')
-                if torch.equal(new_proj_bias, old_proj_bias):
-                    print('PROJ BIAS not updated :( ')
-                else:
-                    print('PROJ BIAS updated correctly :) ')
-                
-                old_cls_token = new_cls_token
-                old_proj_weight = new_proj_weight
-                old_proj_bias = new_proj_bias
-            '''
+
             if i % opt.print_freq == 0 and should_diag:
-
                 logger.info('[{:>3d}/{:>3d}][{:>3d}/{:>3d}]    loss: {:>10.4f},    '
                              'netpNorm_PVD: {:>10.2f},   netgradNorm_PVD: {:>10.2f}     '
                              .format(
                         epoch, opt.n_epochs, i, len(train_dataloader),loss.item(),
-                    netpNorm_pvd, netgradNorm_pvd,
-                        ))
-                
-                logger.info('[{:>3d}/{:>3d}][{:>3d}/{:>3d}]    loss: {:>10.4f},    '
-                             'netpNorm_MAPNET: {:>10.2f},   netgradNorm_MAPNET: {:>10.2f}     '
-                             .format(
-                        epoch, opt.n_epochs, i, len(train_dataloader),loss.item(),
-                    netpNorm_mapnet, netgradNorm_mapnet,
+                    netpNorm, netgradNorm,
                         ))
                 
         if (epoch + 1) % opt.vizIter == 0 and should_diag:
-                
+            model.pvd.eval()
             logger.info('Generating clouds for visualization on training set...')
 
-            model.mapping_net.eval()
-            model.pvd.eval()
             with torch.no_grad():
-                x_gen_eval = model.get_clouds(text_embed, mask, x)
-                x_gen_list = model.get_cloud_traj(text_embed, mask, x)
+                x_gen_eval = model.get_clouds(text_embed, x)
+                x_gen_list = model.get_cloud_traj(text_embed[0].unsqueeze(0), x)
                 x_gen_all = torch.cat(x_gen_list, dim=0)
                 
                 gen_stats = [x_gen_eval.mean(), x_gen_eval.std()]
@@ -389,10 +332,9 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
             with torch.no_grad():
                 val_batch = next(iter(val_dataloader))
                 text_embed_val = val_batch["text_embed"].cuda()
-                mask_val = val_batch["key_pad_mask"].cuda()
                 x_val = val_batch['pointcloud'].transpose(1,2).cuda() 
-                x_gen_eval = model.get_clouds(text_embed_val, mask_val, x_val)
-                x_gen_list = model.get_cloud_traj(text_embed_val, mask_val, x_val)
+                x_gen_eval = model.get_clouds(text_embed_val, x_val)
+                x_gen_list = model.get_cloud_traj(text_embed_val[0].unsqueeze(0), x_val)
                 x_gen_all = torch.cat(x_gen_list, dim=0)
                 
                 gen_stats = [x_gen_eval.mean(), x_gen_eval.std()]
@@ -416,29 +358,20 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
                                     None,
                                     None)
 
-            visualize_pointcloud_batch('%s/epoch_%03d_x_valid.png' % (outf_syn, epoch), x.transpose(1, 2), None,
+            visualize_pointcloud_batch('%s/epoch_%03d_x_valid.png' % (outf_syn, epoch), x_val.transpose(1, 2), None,
                                     None,
                                     None)
 
-            visualize_pointcloud_batch('%s/epoch_%03d_samples_eval_all_train.png' % (outf_syn, epoch),
-                                    x_gen_all.transpose(1, 2), None,
-                                    None,
-                                    None)
 
-            visualize_pointcloud_batch('%s/epoch_%03d_x_train.png' % (outf_syn, epoch), x.transpose(1, 2), None,
-                                    None,
-                                    None)
 
         if (epoch + 1) % opt.diagIter == 0 and should_diag:
-
+            model.pvd.eval()
             logger.info('Computing KL for diagnosis on training set...')
 
-            model.mapping_net.eval()
             model.pvd.eval()
             with torch.no_grad():
-                condition = model.mapping_net(text_embed, mask)
                 x_range = [x.min().item(), x.max().item()]
-                kl_stats = model.pvd.all_kl(x, condition)
+                kl_stats = model.pvd.all_kl(x, text_embed)
 
             logger.info('      [{:>3d}/{:>3d}]    '
                          'x_range: [{:>10.4f}, {:>10.4f}],   '
@@ -454,7 +387,7 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
             ))
 
         if (epoch + 1) % opt.saveIter == 0:
-            
+            model.pvd.eval()
             logger.info('Saving checkpoint...')
             if should_diag:
                 save_dict = {
@@ -482,7 +415,6 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
                     ref_hist[val_dset[i]["model_id"]] = 1
 
             model.pvd.eval()
-            model.mapping_net.eval()
             gen_pcs=[]
             ref_pcs=[]
             texts=[]
@@ -491,9 +423,8 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
                 with torch.no_grad():
                     val_batch = next(iter(val_dataloader))
                     text_embed_val = val_batch["text_embed"].cuda()
-                    mask_val = val_batch["key_pad_mask"].cuda()
                     x_val = val_batch['pointcloud'].transpose(1,2).cuda() 
-                    x_gen_eval = model.get_clouds(text_embed_val, mask_val, x_val)
+                    x_gen_eval = model.get_clouds(text_embed_val, x_val)
                     for text in val_batch["text"]:
                         texts.append(text)
                     for model_id in val_batch["model_id"]:
@@ -540,16 +471,16 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
             
             # Display metrics on Tensorboard
             # CD related metrics
-            writer.add_scalar('test/Coverage_CD', results['lgan_cov-CD'], global_step=i)
-            writer.add_scalar('test/MMD_CD', results['lgan_mmd-CD'], global_step=i)
-            #writer.add_scalar('test/1NN_CD', results['1-NN-CD-acc'], global_step=i)
+            writer.add_scalar('val/Coverage_CD', results['lgan_cov-CD'], i)
+            writer.add_scalar('val/MMD_CD', results['lgan_mmd-CD'], i)
+            #writer.add_scalar('val/1NN_CD', results['1-NN-CD-acc'], i)
             # JSD
-            writer.add_scalar('test/JSD', results['jsd'], global_step=i)
+            writer.add_scalar('val/JSD', results['jsd'], i)
             writer.flush()
 
-            logger.info('[Test] Coverage  | CD %.6f | EMD n/a' % (results['lgan_cov-CD'], ))
-            logger.info('[Test] MinMatDis | CD %.6f | EMD n/a' % (results['lgan_mmd-CD'], ))
-            logger.info('[Test] JsnShnDis | %.6f ' % (results['jsd']))
+            logger.info('[Val] Coverage  | CD %.6f | EMD n/a' % (results['lgan_cov-CD'], ))
+            logger.info('[Val] MinMatDis | CD %.6f | EMD n/a' % (results['lgan_mmd-CD'], ))
+            logger.info('[Val] JsnShnDis | %.6f ' % (results['jsd']))
 
     torch.distributed.destroy_process_group()
 
@@ -597,19 +528,11 @@ def parse_args():
     parser.add_argument('--t2s_dataroot', default='/media/data2/aamaduzzi/datasets/Text2Shape/', help="dataroot of ShapeNet")
     parser.add_argument('--category', default='all')
     parser.add_argument('--bs', type=int, default=64, help='input batch size')
-    parser.add_argument('--workers', type=int, default=16, help='workers')
+    parser.add_argument('--workers', type=int, default=2, help='workers')
     parser.add_argument('--n_epochs', type=int, default=10000, help='number of epochs to train for')
     parser.add_argument('--nc', default=3)
     parser.add_argument('--npoints', default=2048)
-    parser.add_argument('--output_dir', type=str, default="./exps/exp_8", help='directory for experiments logging',)
-
-
-    # MappingNet
-    parser.add_argument('--dmodel', type=int, help='depth of input', default=1024)
-    parser.add_argument('--nhead', type=int, help='n of multi-attention heads', default=8)
-    parser.add_argument('--nlayers', type=int, help='n of encoder layers', default=6)
-    parser.add_argument('--out_flatshape', type=int, help='flattened output shape', default=2048*3)
-    parser.add_argument('--use_nested', action='store_true')    # if not specified, False. Otherwise, True.
+    parser.add_argument('--output_dir', type=str, default="./exps/exp_9", help='directory for experiments logging',)
 
     # PVD
     # noise schedule
@@ -635,7 +558,7 @@ def parse_args():
 
     # path to checkpt of trained model and PVD model
     parser.add_argument('--model', default='', help="path to model (to continue training)")
-    parser.add_argument('--pvd_model', default='../PVD/ckpt/generation/chair_1799.pth', help="path to PVD model (to freeze PVD")
+    parser.add_argument('--pvd_model', default='', help="path to PVD model (to freeze PVD")
 
 
     # distributed training
@@ -659,7 +582,7 @@ def parse_args():
     parser.add_argument('--saveIter', default=50, help='unit: epoch when checkpoint is saved')  
     parser.add_argument('--diagIter', default=100, help='unit: epoch when diagnosis is done')
     parser.add_argument('--vizIter', default=100, help='unit: epoch when visualization is done')
-    parser.add_argument('--valIter', default=100, help='unit: epoch when validation is done')
+    parser.add_argument('--valIter', default=150, help='unit: epoch when validation is done')
     parser.add_argument('--val_size', default=1000, help='number of clouds evaluated during validation')
     parser.add_argument('--print_freq', default=100, help='unit: iter where gradients and step are printed')
     parser.add_argument('--manualSeed', default=42, type=int, help='random seed')

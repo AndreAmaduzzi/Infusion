@@ -6,9 +6,22 @@ import torch
 import numpy as np
 import modules
 from modules.shared_mlp import SharedMLP
-from modules.pvconv import PVConv, Attention, Swish
+from modules.pvconv import ContextSequential, PVConv, SelfAttention, CrossAttention, Swish
 from modules.pointnet import PointNetAModule, PointNetFPModule, PointNetSAModule
 
+class ContextSequentialPVCNN(nn.Sequential):
+    """
+    A sequential module that passes timestep embeddings to the children that
+    support it as an extra input.
+    """
+
+    def forward(self, x, context=None):
+        for layer in self:
+            if isinstance(layer, PVConv):
+                x = layer(x, context)
+            else:
+                x = layer(x)
+        return x
 
 def _linear_gn_relu(in_channels, out_channels):
     return nn.Sequential(nn.Linear(in_channels, out_channels), nn.GroupNorm(8,out_channels), Swish())
@@ -124,9 +137,9 @@ def create_pointnet2_sa_components(sa_blocks, extra_feature_channels, embed_dim=
         c += 1
         in_channels = extra_feature_channels = sa_blocks[-1].out_channels
         if len(sa_blocks) == 1:
-            sa_layers.append(sa_blocks[0])
+            sa_layers.append(ContextSequentialPVCNN(sa_blocks[0]))
         else:
-            sa_layers.append(nn.Sequential(*sa_blocks))
+            sa_layers.append(ContextSequentialPVCNN(*sa_blocks))
 
     return sa_layers, sa_in_channels, in_channels, 1 if num_centers is None else num_centers
 
@@ -163,9 +176,9 @@ def create_pointnet2_fp_modules(fp_blocks, in_channels, sa_in_channels, embed_di
                 fp_blocks.append(block(in_channels, out_channels))
                 in_channels = out_channels
         if len(fp_blocks) == 1:
-            fp_layers.append(fp_blocks[0])
+            fp_layers.append(ContextSequentialPVCNN(fp_blocks[0]))
         else:
-            fp_layers.append(nn.Sequential(*fp_blocks))
+            fp_layers.append(ContextSequentialPVCNN(*fp_blocks))
 
         c += 1
 
@@ -190,7 +203,7 @@ class PVCNN2Base(nn.Module):
         )
         self.sa_layers = nn.ModuleList(sa_layers)
 
-        self.global_att = None if not use_att else Attention(channels_sa_features, 8, D=1)
+        self.global_att = None if not use_att else SelfAttention(channels_sa_features, 8, D=1)
 
         # only use extra features in the last fp module
         sa_in_channels[0] = extra_feature_channels
@@ -227,14 +240,10 @@ class PVCNN2Base(nn.Module):
         assert emb.shape == torch.Size([timesteps.shape[0], self.embed_dim])
         return emb
 
-    def forward(self, inputs, t, condition=None):           
+    def forward(self, inputs, t, context=None):           
         # here, t.shape = [B]
         temb =  self.embedf(self.get_timestep_embedding(t, inputs.device))[:,:,None].expand(-1,-1,inputs.shape[-1])     # temb: Bx64x2048 | condition: Bx64 | inputs: Bx3x2048
-        if condition is not None:
-            condition = condition.unsqueeze(-1)
-            temb = temb + condition # broadcasting should work 
-            #temb = temb + condition.expand(-1, -1, inputs.shape[-1]) 
-
+        
         # inputs : [B, in_channels + S, N]
         coords, features = inputs[:, :3, :].contiguous(), inputs
         coords_list, in_features_list = [], []
@@ -242,14 +251,14 @@ class PVCNN2Base(nn.Module):
             in_features_list.append(features)
             coords_list.append(coords)
             if i == 0:
-                features, coords, temb = sa_blocks ((features, coords, temb))
+                features, coords, temb = sa_blocks ((features, coords, temb), context)
             else:
-                features, coords, temb = sa_blocks ((torch.cat([features,temb],dim=1), coords, temb))
+                features, coords, temb = sa_blocks ((torch.cat([features,temb],dim=1), coords, temb), context)
         in_features_list[0] = inputs[:, 3:, :].contiguous()
         if self.global_att is not None:
             features = self.global_att(features)
         for fp_idx, fp_blocks  in enumerate(self.fp_layers):
-            features, coords, temb = fp_blocks((coords_list[-1-fp_idx], coords, torch.cat([features,temb],dim=1), in_features_list[-1-fp_idx], temb))
+            features, coords, temb = fp_blocks((coords_list[-1-fp_idx], coords, torch.cat([features,temb],dim=1), in_features_list[-1-fp_idx], temb), context)
 
         return self.classifier(features)
 

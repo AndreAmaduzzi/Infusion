@@ -364,7 +364,7 @@ class PVD(nn.Module):
         assert out.shape == torch.Size([B, D, N])
         return out
 
-    def get_loss_iter(self, data, c=None, noises=None, condition=None): # TODO: define text-conditioning scheme
+    def get_loss_iter(self, data, c=None, noises=None, condition=None):
         B, D, N = data.shape
         t = torch.randint(0, self.diffusion.num_timesteps, size=(B,), device=data.device)
 

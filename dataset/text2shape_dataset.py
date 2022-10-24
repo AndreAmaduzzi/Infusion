@@ -25,6 +25,7 @@ class Text2Shape(Dataset):
         language_model: str,
         lowercase_text: bool,
         max_length: int,
+        padding: bool,
         conditional_setup: bool,
         scale_mode: str,
         transforms: List[Callable] = []
@@ -123,22 +124,32 @@ class Text2Shape(Dataset):
 
             tensor_name = row["tensor"]
             if lowercase_text:
-                text_embed_path = self.root / "text_embeds" / language_model / "lowercase" / f"{tensor_name}"
+                if padding:
+                    text_embed_path = self.root / "text_embeds" / language_model / "lowercase" /  "padding" / f"{tensor_name}"
+                else:
+                    text_embed_path = self.root / "text_embeds" / language_model / "lowercase" / f"{tensor_name}"
             else:
-                text_embed_path = self.root / "text_embeds" / language_model / "std" / f"{tensor_name}"
+                if padding:
+                    text_embed_path = self.root / "text_embeds" / language_model / "std" /  "padding" / f"{tensor_name}"
+                else:
+                    text_embed_path = self.root / "text_embeds" / language_model / "std" / f"{tensor_name}"
             
-            text_embed = torch.load(text_embed_path)[:max_length].cpu()
+            if padding:
+                text_embed = torch.load(text_embed_path).cpu()
+            else:
+                text_embed = torch.load(text_embed_path)[:max_length].cpu() # manually truncate to max_length
 
             # build mask for this text embedding (i have text embeds length and max length)
-            key_padding_mask_false = torch.zeros((1+text_embed.shape[0]), dtype=torch.bool)            # False => elements will be processed
-            key_padding_mask_true = torch.ones((max_length - text_embed.shape[0]), dtype=torch.bool) # True => elements will NOT be processed
-            key_padding_mask = torch.cat((key_padding_mask_false, key_padding_mask_true), dim=0)
+            #key_padding_mask_false = torch.zeros((1+text_embed.shape[0]), dtype=torch.bool)             # False => elements will be processed
+            #key_padding_mask_true = torch.ones((max_length - text_embed.shape[0]), dtype=torch.bool)    # True => elements will NOT be processed
+            #key_padding_mask = torch.cat((key_padding_mask_false, key_padding_mask_true), dim=0)
 
 
             # pad to length to max_length_t2s
-            # add zeros at the end of text embed to reach max_length            
-            pad = torch.zeros(max_length - text_embed.shape[0], text_embed.shape[1])
-            text_embed = torch.cat((text_embed, pad), dim=0)
+            # add zeros at the end of text embed to reach max_length     
+            if not padding: #if the language model has not padded the embeddings, we have to do it by hand
+                pad = torch.zeros(max_length - text_embed.shape[0], text_embed.shape[1])
+                text_embed = torch.cat((text_embed, pad), dim=0)
 
             # avg pooling
             #text_embed = torch.mean(text_embed, dim=0)
@@ -154,7 +165,7 @@ class Text2Shape(Dataset):
                     'cate': category,
                     'shift': shift,
                     'scale': scale,
-                    'key_pad_mask': key_padding_mask,
+                    #'key_pad_mask': key_padding_mask,
                 })
 
         # Deterministically shuffle the dataset
