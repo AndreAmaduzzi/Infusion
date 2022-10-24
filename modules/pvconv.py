@@ -81,8 +81,8 @@ class CrossAttention(nn.Module):
         assert query_dim % num_groups == 0
         if D == 3:
             self.q = nn.Conv3d(query_dim, query_dim, 1)
-            self.k = nn.Linear(context_dim, query_dim, bias=False)   
-            self.v = nn.Linear(context_dim, query_dim, bias=False)
+            self.k = nn.Conv1d(context_dim, query_dim, 1)   
+            self.v = nn.Conv1d(context_dim, query_dim, 1)
 
             self.out = nn.Conv3d(query_dim, query_dim, 1)
         '''
@@ -101,19 +101,19 @@ class CrossAttention(nn.Module):
 
 
     def forward(self, x, context=None):
-        B, C = x.shape[:2]                  # x=B,64,16,16,16 or x=B,512,16
-        h = x                               # context=B,77,1024
+        B, C = x.shape[:2]                  # x=B,64,16,16,16  # context=B,77,1024
         
-        q = self.q(h)               #Bx64x16x16x16
-        q = q.reshape(B,C,-1)       #Bx64x4096
-        k = self.k(context)         #Bx77x1024 => Bx77x64
-        v = self.v(context)         #Bx77x1024 => Bx77x64
+        q = self.q(x)                               #Bx64x16x16x16
+        q = q.reshape(B,C,-1)                       #Bx64x4096
+        k = self.k(context.permute(0,2,1))         #Bx77x1024 => Bx77x64
+        v = self.v(context.permute(0,2,1))         #Bx77x1024 => Bx77x64
 
-        qk = torch.matmul(q.permute(0, 2, 1), k.permute(0, 2, 1)) #* (int(C) ** (-0.5))
+        qk = torch.matmul(q.permute(0,2,1), k) #* (int(C) ** (-0.5))
 
         w = self.sm(qk)
 
-        h = torch.matmul(v.permute(0, 2, 1), w.permute(0, 2, 1)).reshape(B,C,*x.shape[2:])
+        h = torch.matmul(v, w.permute(0, 2, 1))
+        h = h.reshape(B,C,*x.shape[2:])
 
         h = self.out(h)
 
