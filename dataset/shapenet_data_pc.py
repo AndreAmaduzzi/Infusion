@@ -159,8 +159,8 @@ class Uniform15KPC(Dataset):
 
                 # NOTE: [mid] contains the split: i.e. "train/<mid>" or "val/<mid>" or "test/<mid>"
                 for mid in all_mids:
-                    obj_fname = os.path.join(sub_path, x)
-                    #obj_fname = os.path.join(root_dir, subd, mid + ".npy")
+                    obj_fname = os.path.join(root_dir, subd, '_', mid + ".npy")
+                    #print('obj_fname: ', obj_fname)
                     try:
                         point_cloud = np.load(obj_fname)  # (15k, 3)
 
