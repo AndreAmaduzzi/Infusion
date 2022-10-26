@@ -80,6 +80,10 @@ class Text2Shape(Dataset):
         # if I am training only with shapes, I remove rows of the same shape and different text
         if not conditional_setup:
             df.drop_duplicates(subset=['modelId'], inplace=True)
+        
+        if self.scale_mode == 'global_unit':    # compute mean and std of the current set of data
+            global_mean, global_std = self.get_ds_statistics(df, from_shapenet_v1, from_shapenet_v2) 
+
         for idx, row in df.iterrows():
             # read_pcd
             text = row["description"]
@@ -99,9 +103,9 @@ class Text2Shape(Dataset):
                 o3d_pcd = o3d.io.read_point_cloud(model_path)
                 pc = get_tensor_pcd_from_o3d(o3d_pcd)
             #scaling the pcd (from diffusion-pointcloud code)
-            if self.scale_mode == 'global_unit':
-                    shift = pc.mean(dim=0).reshape(1, 3)
-                    scale = self.stats['std'].reshape(1, 1) # stats does not exist! take the code from diffusion-point-cloud
+            if self.scale_mode == "global_unit":
+                shift = global_mean
+                scale = global_std
             elif self.scale_mode == 'shape_unit':
                     shift = pc.mean(dim=0).reshape(1, 3)
                     scale = pc.flatten().std().reshape(1, 1)
@@ -172,6 +176,29 @@ class Text2Shape(Dataset):
         self.pointclouds.sort(key=lambda data: data['model_id'], reverse=False)
         random.Random(2020).shuffle(self.pointclouds)
 
+    def get_ds_statistics(self, dataframe, from_shapenet_v1, from_shapenet_v2): # compute mean and std dev across required dataset
+        dataframe_ = dataframe.drop_duplicates(subset=['modelId'])
+        pointclouds=[]
+        for idx, row in dataframe_.iterrows():
+            # read_pcd
+            model_id = row["modelId"]
+            if from_shapenet_v1:
+                model_path = str(self.root / "shapes" / "shapenet_v1" / f"{model_id}.ply")
+                o3d_pcd = o3d.io.read_point_cloud(model_path)
+                pc = get_tensor_pcd_from_o3d(o3d_pcd)
+            elif from_shapenet_v2:
+                model_path = str(self.root / "shapes" / "shapenet_v2" / f"{model_id}.ply")
+                o3d_pcd = o3d.io.read_point_cloud(model_path)
+                pc = get_tensor_pcd_from_o3d(o3d_pcd)
+            else:
+                model_path = str(self.root / "shapes" / "text2shape" / f"{model_id}.ply")
+                o3d_pcd = o3d.io.read_point_cloud(model_path)
+                pc = get_tensor_pcd_from_o3d(o3d_pcd)
+            pointclouds.append(pc)
+        pcs = torch.cat(pointclouds, dim=0)
+        mean = pcs.reshape(-1, 3).mean(axis=0).reshape(1,3)
+        std = pcs.reshape(-1).std(axis=0).reshape(1,1)
+        return mean, std
 
     def __len__(self):
         return len(self.pointclouds)
