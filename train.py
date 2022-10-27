@@ -76,7 +76,7 @@ def get_text2shape_dataset(dataroot, category):
         language_model="t5-11b",
         lowercase_text=False,
         max_length=77,
-        padding=True,
+        padding=False,
         scale_mode="shape_unit")
 
     val_dataset = Text2Shape(root=Path(dataroot),
@@ -88,7 +88,7 @@ def get_text2shape_dataset(dataroot, category):
         language_model="t5-11b",
         lowercase_text=False,
         max_length=77,
-        padding=True,
+        padding=False,
         scale_mode="shape_unit"
         )
 
@@ -244,9 +244,23 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
             if torch.isnan(noises_batch).any():
                     print(f'NaN values in noises')
 
-            sum_text_embed = torch.sum(text_embed, dim=2)
-            sum_text_embed = torch.sum(sum_text_embed, dim=1)
             #print('is the text embed free from all zeros rows? ', torch.count_nonzero(sum_text_embed)==sum_text_embed.shape[0])
+
+            # apply clever padding: truncate text embeds to length of longest sequence: add zeros if needed
+            # find longest sequence in batch. text_embed has shape (B,60,1024)
+            sum_text_embed = torch.sum(text_embed, dim=2)
+            max_seq_len = 0
+            max_seq_len_idx = 0
+            for idx, embed in enumerate(sum_text_embed):
+                zero_idx = torch.argmin(abs(embed), dim=0)
+                if zero_idx.item()>max_seq_len:
+                    max_seq_len=zero_idx
+                    max_seq_len_idx = idx
+            
+            #print('longest len: ', max_seq_len)
+            #print('longest sentence: ', text[max_seq_len_idx])
+
+            text_embed = text_embed[:,:max_seq_len, :]
 
             model.pvd.train()
             loss = model.get_loss(x, noises_batch, text_embed).mean()
