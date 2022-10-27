@@ -120,10 +120,10 @@ class GaussianDiffusion:
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
 
-    def p_mean_variance(self, denoise_fn, data, t, clip_denoised: bool, return_pred_xstart: bool, condition=None):
+    def p_mean_variance(self, denoise_fn, data, t, clip_denoised: bool, return_pred_xstart: bool, condition=None, epoch=0, save_matrices=False,):
 
         if condition is not None:
-            model_output = denoise_fn(data, t, condition)
+            model_output = denoise_fn(data, t, condition, epoch=epoch, save_matrices=save_matrices)
         else:
             raise Exception('condition is None')
 
@@ -167,12 +167,12 @@ class GaussianDiffusion:
 
     ''' samples '''
 
-    def p_sample(self, denoise_fn, data, t, noise_fn, clip_denoised=False, return_pred_xstart=False, condition=None):
+    def p_sample(self, denoise_fn, data, t, noise_fn, clip_denoised=False, return_pred_xstart=False, condition=None, epoch=0, save_matrices=False):
         """
         Sample from the model
         """
         model_mean, _, model_log_variance, pred_xstart = self.p_mean_variance(denoise_fn, data=data, t=t, clip_denoised=clip_denoised,
-                                                                 return_pred_xstart=True, condition=condition)
+                                                                 return_pred_xstart=True, condition=condition, epoch=epoch, save_matrices=save_matrices)
         noise = noise_fn(size=data.shape, dtype=data.dtype, device=data.device)
         assert noise.shape == data.shape
         # no noise when t == 0
@@ -238,7 +238,7 @@ class GaussianDiffusion:
 
         return (kl, pred_xstart) if return_pred_xstart else kl
 
-    def p_losses(self, denoise_fn, data_start, t, noise=None, condition=None):
+    def p_losses(self, denoise_fn, data_start, t, noise=None, condition=None, text=None, epoch=0, save_matrices=False):
         """
         Training loss calculation
         """
@@ -253,7 +253,7 @@ class GaussianDiffusion:
 
         if self.loss_type == 'mse':
             # predict the noise instead of x_start. seems to be weighted naturally like SNR
-            eps_recon = denoise_fn(data_t, t, condition)
+            eps_recon = denoise_fn(data_t, t, condition, text, epoch, save_matrices)
             assert data_t.shape == data_start.shape
             assert eps_recon.shape == torch.Size([B, D, N])
             assert eps_recon.shape == data_start.shape
@@ -354,17 +354,17 @@ class PVD(nn.Module):
         }
 
 
-    def _denoise(self, data, t, condition=None):
+    def _denoise(self, data, t, condition=None, text=None, epoch=0, save_matrices=False):
         B, D,N= data.shape
         assert data.dtype == torch.float
         assert t.shape == torch.Size([B]) and t.dtype == torch.int64
 
-        out = self.model(data, t, condition)
+        out = self.model(data, t, condition, text, epoch, save_matrices)
 
         assert out.shape == torch.Size([B, D, N])
         return out
 
-    def get_loss_iter(self, data, c=None, noises=None, condition=None):
+    def get_loss_iter(self, data, c=None, noises=None, condition=None, text=None, epoch=0, save_matrices=False):
         B, D, N = data.shape
         t = torch.randint(0, self.diffusion.num_timesteps, size=(B,), device=data.device)
 
@@ -372,7 +372,7 @@ class PVD(nn.Module):
             noises[t!=0] = torch.randn((t!=0).sum(), *noises.shape[1:]).to(noises)
 
         losses = self.diffusion.p_losses(
-            denoise_fn=self._denoise, data_start=data, t=t, noise=noises, condition=condition)
+            denoise_fn=self._denoise, data_start=data, t=t, noise=noises, condition=condition, text=text, epoch=epoch, save_matrices=save_matrices)
         assert losses.shape == t.shape == torch.Size([B])
         return losses
 

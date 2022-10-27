@@ -263,7 +263,12 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
             text_embed = text_embed[:,:max_seq_len, :]
 
             model.pvd.train()
-            loss = model.get_loss(x, noises_batch, text_embed).mean()
+            if i==0 and (epoch + 1) % opt.vizIter == 0 and should_diag:    # first batch and epoch is multiple of vizIter
+                save_matrices=True
+            else:
+                save_matrices=False
+            
+            loss = model.get_loss(x, noises_batch, text_embed, text, epoch, save_matrices=save_matrices).mean()
             
             optimizer.zero_grad()   # this command sets to zero the gradient of the params to optimize
             loss.backward()

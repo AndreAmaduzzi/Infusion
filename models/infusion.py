@@ -13,9 +13,12 @@ class Infusion(nn.Module):
                 cloud: Tensor,
                 noises_batch: Tensor,
                 text_embed: Tensor,
+                text: list,
+                epoch: int,
+                save_matrices: bool
                 ):
                 
-        loss = self.pvd.get_loss_iter(data=cloud, noises=noises_batch, condition=text_embed)
+        loss = self.pvd.get_loss_iter(data=cloud, noises=noises_batch, condition=text_embed, text=text, epoch=epoch, save_matrices=save_matrices)
 
         return loss
     
@@ -27,8 +30,8 @@ class Infusion(nn.Module):
         return clouds
 
     def get_cloud_traj(self,
-                text_embed: Tensor,             # a batch of text embeds  
-                test_shapes: Tensor):           # a batch of shapes
+                text_embed: Tensor,             # a single text embedding 
+                test_shapes: Tensor):           # a single shape           
         
         cloud_traj = self.pvd.gen_sample_traj(self.new_x_chain(test_shapes, 1).shape, test_shapes.device, freq=40, clip_denoised=False, condition=text_embed) # we get trajectory only for 1 shape
         return cloud_traj

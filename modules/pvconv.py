@@ -4,6 +4,7 @@ import modules.functional as F
 from modules.voxelization import Voxelization
 from modules.shared_mlp import SharedMLP
 from modules.se import SE3d
+import random
 
 __all__ = ['PVConv', 'SelfAttention', 'CrossAttention', 'Swish', 'PVConvReLU']
 
@@ -13,10 +14,10 @@ class ContextSequential(nn.Sequential):
     support it as an extra input.
     """
 
-    def forward(self, x, context=None):
+    def forward(self, x, context=None, text=None, epoch=0, save_matrices=False):
         for layer in self:
             if isinstance(layer, CrossAttention):
-                x = layer(x, context)
+                x = layer(x, context, text, epoch, save_matrices)
             else:
                 x = layer(x)
         return x
@@ -80,11 +81,11 @@ class CrossAttention(nn.Module):
         super(CrossAttention, self).__init__()
         assert query_dim % num_groups == 0
         if D == 3:
-            self.q = nn.Conv3d(query_dim, query_dim, 1)
-            self.k = nn.Conv1d(context_dim, query_dim, 1)   
-            self.v = nn.Conv1d(context_dim, query_dim, 1)
+            self.q = nn.Conv3d(query_dim, query_dim, 1)     # 64,64 =>      Bx64x16x16x16 => Bx77x4096
+            self.k = nn.Conv1d(context_dim, query_dim, 1)   # 1024,64 =>    Bx77x1024   => Bx77x64
+            self.v = nn.Conv1d(context_dim, query_dim, 1)   # 1024,64 =>    Bx77x1024   => Bx77x64
 
-            self.out = nn.Conv3d(query_dim, query_dim, 1)
+            self.out = nn.Conv3d(query_dim, query_dim, 1)   # 64,64
         '''
         elif D == 1:
             self.q = nn.Conv1d(query_dim, query_dim, 1)
@@ -100,19 +101,31 @@ class CrossAttention(nn.Module):
         self.sm = nn.Softmax(-1)
 
 
-    def forward(self, x, context=None):
+    def forward(self, x, context=None, text=None, epoch=0, save_matrices=False):
         B, C = x.shape[:2]                  # x=B,64,16,16,16  # context=B,77,1024
         
+        random_n = random.randrange(0, 10000)
+        if save_matrices:
+            torch.save(x, f"./exps/exp_12/matrices/x_{epoch}_{random_n}.pt")
+            torch.save(context, f"./exps/exp_12/matrices/context_{epoch}_{random_n}.pt")
+            with open(f"./exps/exp_12/matrices/text_{epoch}_{random_n}.txt", "w") as f:
+                for text_pt in text:
+                    f.write(text_pt + "\n")
+
+
         q = self.q(x)                               #Bx64x16x16x16
         q = q.reshape(B,C,-1)                       #Bx64x4096
-        k = self.k(context.permute(0,2,1))         #Bx77x1024 => Bx77x64
-        v = self.v(context.permute(0,2,1))         #Bx77x1024 => Bx77x64
+        k = self.k(context.permute(0,2,1))          #Bx77x1024 => Bx1024x77 => Bx64x77
+        v = self.v(context.permute(0,2,1))          #Bx77x1024 => Bx77x64
 
         qk = torch.matmul(q.permute(0,2,1), k) #* (int(C) ** (-0.5))
 
         w = self.sm(qk)
 
         h = torch.matmul(v, w.permute(0, 2, 1))
+        if save_matrices:
+            torch.save(h,   f"./exps/exp_12/matrices/v*w_{epoch}_{random_n}.pt")
+
         h = h.reshape(B,C,*x.shape[2:])
 
         h = self.out(h)
@@ -120,6 +133,11 @@ class CrossAttention(nn.Module):
         x = h + x
  
         x = self.nonlin(self.norm(x))
+
+        if save_matrices:
+            torch.save(qk,  f"./exps/exp_12/matrices/qk_{epoch}_{random_n}.pt")
+            torch.save(h,   f"./exps/exp_12/matrices/h_{epoch}_{random_n}.pt")
+            torch.save(x,   f"./exps/exp_12/matrices/out_{epoch}_{random_n}.pt")
 
         return x
 
@@ -156,10 +174,10 @@ class PVConv(nn.Module):
         self.voxel_layers = ContextSequential(*voxel_layers)
         self.point_features = SharedMLP(in_channels, out_channels)
 
-    def forward(self, inputs, context=None):
+    def forward(self, inputs, context=None, text=None, epoch=0, save_matrices=False):
         features, coords, temb = inputs
         voxel_features, voxel_coords = self.voxelization(features, coords)
-        voxel_features = self.voxel_layers(voxel_features, context)
+        voxel_features = self.voxel_layers(voxel_features, context, text, epoch, save_matrices)
         voxel_features = F.trilinear_devoxelize(voxel_features, voxel_coords, self.resolution, self.training)
         fused_features = voxel_features + self.point_features(features)
         return fused_features, coords, temb

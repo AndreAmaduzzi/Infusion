@@ -15,10 +15,10 @@ class ContextSequentialPVCNN(nn.Sequential):
     support it as an extra input.
     """
 
-    def forward(self, x, context=None):
+    def forward(self, x, context=None,text=None, epoch=0, save_matrices=False):
         for layer in self:
             if isinstance(layer, PVConv):
-                x = layer(x, context)
+                x = layer(x, context, text, epoch, save_matrices)
             else:
                 x = layer(x)
         return x
@@ -240,7 +240,7 @@ class PVCNN2Base(nn.Module):
         assert emb.shape == torch.Size([timesteps.shape[0], self.embed_dim])
         return emb
 
-    def forward(self, inputs, t, context=None):           
+    def forward(self, inputs, t, context=None, text=None, epoch=0, save_matrices=False):           
         # here, t.shape = [B]
         temb =  self.embedf(self.get_timestep_embedding(t, inputs.device))[:,:,None].expand(-1,-1,inputs.shape[-1])     # temb: Bx64x2048 | condition: Bx64 | inputs: Bx3x2048
         
@@ -251,9 +251,9 @@ class PVCNN2Base(nn.Module):
             in_features_list.append(features)
             coords_list.append(coords)
             if i == 0:
-                features, coords, temb = sa_blocks ((features, coords, temb), context)
+                features, coords, temb = sa_blocks ((features, coords, temb), context, text, epoch, save_matrices)
             else:
-                features, coords, temb = sa_blocks ((torch.cat([features,temb],dim=1), coords, temb), context)
+                features, coords, temb = sa_blocks ((torch.cat([features,temb],dim=1), coords, temb), context, text, epoch, save_matrices)
         in_features_list[0] = inputs[:, 3:, :].contiguous()
         if self.global_att is not None:
             features = self.global_att(features)
