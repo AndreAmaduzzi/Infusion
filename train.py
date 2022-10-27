@@ -312,76 +312,6 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
                         epoch, opt.n_epochs, i, len(train_dataloader),loss.item(),
                     netpNorm, netgradNorm,
                         ))
-                
-        if (epoch + 1) % opt.vizIter == 0 and should_diag:
-            model.pvd.eval()
-            logger.info('Generating clouds for visualization on training set...')
-
-            with torch.no_grad():
-                x_gen_eval = model.get_clouds(text_embed, x)
-                x_gen_list = model.get_cloud_traj(text_embed[0].unsqueeze(0), x)
-                x_gen_all = torch.cat(x_gen_list, dim=0)
-                
-                gen_stats = [x_gen_eval.mean(), x_gen_eval.std()]
-
-                gen_eval_range = [x_gen_eval.min().item(), x_gen_eval.max().item()]
-
-            logger.info('      [{:>3d}/{:>3d}]  '
-                            'eval_gen_range: [{:>10.4f}, {:>10.4f}]     '
-                            'eval_gen_stats: [mean={:>10.4f}, std={:>10.4f}]      '
-                    .format(
-                    epoch, opt.n_epochs,
-                    *gen_eval_range, *gen_stats,
-                ))
-
-            visualize_pointcloud_batch('%s/epoch_%03d_samples_eval_train.png' % (outf_syn, epoch),
-                                    x_gen_eval.transpose(1, 2), None, None,
-                                    None)
-
-            visualize_pointcloud_batch('%s/epoch_%03d_samples_eval_all_train.png' % (outf_syn, epoch),
-                                    x_gen_all.transpose(1, 2), None,
-                                    None,
-                                    None)
-
-            visualize_pointcloud_batch('%s/epoch_%03d_x_train.png' % (outf_syn, epoch), x.transpose(1, 2), None,
-                                    None,
-                                    None)
-
-            logger.info('Generating clouds for visualization on validation set...')
-            with torch.no_grad():
-                val_batch = next(iter(val_dataloader))
-                text_embed_val = val_batch["text_embed"].cuda()
-                x_val = val_batch['pointcloud'].transpose(1,2).cuda() 
-                x_gen_eval = model.get_clouds(text_embed_val, x_val)
-                x_gen_list = model.get_cloud_traj(text_embed_val[0].unsqueeze(0), x_val)
-                x_gen_all = torch.cat(x_gen_list, dim=0)
-                
-                gen_stats = [x_gen_eval.mean(), x_gen_eval.std()]
-
-                gen_eval_range = [x_gen_eval.min().item(), x_gen_eval.max().item()]
-
-                logger.info('      [{:>3d}/{:>3d}]  '
-                            'eval_gen_range: [{:>10.4f}, {:>10.4f}]     '
-                            'eval_gen_stats: [mean={:>10.4f}, std={:>10.4f}]      '
-                    .format(
-                    epoch, opt.n_epochs,
-                    *gen_eval_range, *gen_stats,
-                ))
-
-            visualize_pointcloud_batch('%s/epoch_%03d_samples_eval_valid.png' % (outf_syn, epoch),
-                                    x_gen_eval.transpose(1, 2), None, None,
-                                    None)
-
-            visualize_pointcloud_batch('%s/epoch_%03d_samples_eval_all_valid.png' % (outf_syn, epoch),
-                                    x_gen_all.transpose(1, 2), None,
-                                    None,
-                                    None)
-
-            visualize_pointcloud_batch('%s/epoch_%03d_x_valid.png' % (outf_syn, epoch), x_val.transpose(1, 2), None,
-                                    None,
-                                    None)
-
-
 
         if (epoch + 1) % opt.diagIter == 0 and should_diag:
             model.pvd.eval()
@@ -500,6 +430,76 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
             logger.info('[Val] Coverage  | CD %.6f | EMD n/a' % (results['lgan_cov-CD'], ))
             logger.info('[Val] MinMatDis | CD %.6f | EMD n/a' % (results['lgan_mmd-CD'], ))
             logger.info('[Val] JsnShnDis | %.6f ' % (results['jsd']))
+
+        if (epoch + 1) % opt.vizIter == 0 and should_diag:
+                model.pvd.eval()
+                logger.info('Generating clouds for visualization on training set...')
+
+                with torch.no_grad():
+                    x_gen_eval = model.get_clouds(text_embed, x)
+                    x_gen_list = model.get_cloud_traj(text_embed[0].unsqueeze(0), x)
+                    x_gen_all = torch.cat(x_gen_list, dim=0)
+                    
+                    gen_stats = [x_gen_eval.mean(), x_gen_eval.std()]
+
+                    gen_eval_range = [x_gen_eval.min().item(), x_gen_eval.max().item()]
+
+                logger.info('      [{:>3d}/{:>3d}]  '
+                                'eval_gen_range: [{:>10.4f}, {:>10.4f}]     '
+                                'eval_gen_stats: [mean={:>10.4f}, std={:>10.4f}]      '
+                        .format(
+                        epoch, opt.n_epochs,
+                        *gen_eval_range, *gen_stats,
+                    ))
+
+                visualize_pointcloud_batch('%s/epoch_%03d_samples_eval_train.png' % (outf_syn, epoch),
+                                        x_gen_eval.transpose(1, 2), None, None,
+                                        None)
+
+                visualize_pointcloud_batch('%s/epoch_%03d_samples_eval_all_train.png' % (outf_syn, epoch),
+                                        x_gen_all.transpose(1, 2), None,
+                                        None,
+                                        None)
+
+                visualize_pointcloud_batch('%s/epoch_%03d_x_train.png' % (outf_syn, epoch), x.transpose(1, 2), None,
+                                        None,
+                                        None)
+                
+                logger.info('Generating clouds for visualization on validation set...')
+                with torch.no_grad():
+                    val_batch = next(iter(val_dataloader))
+                    text_embed_val = val_batch["text_embed"].cuda()
+                    x_val = val_batch['pointcloud'].transpose(1,2).cuda()
+                    text_val = val_batch['text']
+                    x_gen_eval = model.get_clouds(text_embed_val, x_val)
+                    x_gen_list = model.get_cloud_traj(text_embed_val[0].unsqueeze(0), x_val)
+                    x_gen_all = torch.cat(x_gen_list, dim=0)
+                    
+                    gen_stats = [x_gen_eval.mean(), x_gen_eval.std()]
+
+                    gen_eval_range = [x_gen_eval.min().item(), x_gen_eval.max().item()]
+
+                    logger.info('      [{:>3d}/{:>3d}]  '
+                                'eval_gen_range: [{:>10.4f}, {:>10.4f}]     '
+                                'eval_gen_stats: [mean={:>10.4f}, std={:>10.4f}]      '
+                        .format(
+                        epoch, opt.n_epochs,
+                        *gen_eval_range, *gen_stats,
+                    ))
+
+                visualize_pointcloud_batch('%s/epoch_%03d_samples_eval_valid.png' % (outf_syn, epoch),
+                                        x_gen_eval.transpose(1, 2), None, None,
+                                        None)
+
+                visualize_pointcloud_batch('%s/epoch_%03d_samples_eval_all_valid.png' % (outf_syn, epoch),
+                                        x_gen_all.transpose(1, 2), None,
+                                        None,
+                                        None)
+
+                visualize_pointcloud_batch('%s/epoch_%03d_x_valid.png' % (outf_syn, epoch), x_val.transpose(1, 2), None,
+                                        None,
+                                        None)
+
 
     torch.distributed.destroy_process_group()
 
