@@ -193,11 +193,44 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
 
     lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, opt.lr_gamma)
 
-    if opt.model != '':
+    if opt.model!='':
+        # CODE TO TRAIN FROM FROZEN UNCONDITIONAL PVD
         ckpt = torch.load(opt.model)
-        model.load_state_dict(ckpt['model_state'])
+        new_pretrained_dict = OrderedDict()
+        pretrained_dict = ckpt["model_state"]
+        for k, v in pretrained_dict.items():
+            if not k.startswith('pvd'):
+                name = "pvd." + k
+            name = name.replace('pvd.model.module.sa_layers.1.0.voxel_layers.7.fc.0.weight', 'pvd.model.module.sa_layers.1.0.voxel_layers.10.fc.0.weight')
+            name = name.replace('pvd.model.module.sa_layers.1.0.voxel_layers.7.fc.2.weight', 'pvd.model.module.sa_layers.1.0.voxel_layers.10.fc.2.weight')
+            name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.0.weight', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.0.weight')
+            name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.0.bias', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.0.bias')
+            name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.1.weight', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.1.weight')
+            name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.1.bias', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.1.bias')
+            name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.3.weight', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.3.weight')
+            name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.3.bias', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.3.bias')
+            name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.4.weight', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.4.weight')
+            name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.4.bias', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.4.bias')
+            name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.6.weight', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.6.weight')
+            name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.6.bias', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.6.bias')
+            name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.7.weight', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.7.weight')
+            name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.7.bias', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.7.bias')
+            name = name.replace('pvd.model.module.fp_layers.1.1.voxel_layers.7.fc.0.weight', 'pvd.model.module.fp_layers.1.1.voxel_layers.10.fc.0.weight')
+            name = name.replace('pvd.model.module.fp_layers.1.1.voxel_layers.7.fc.2.weight', 'pvd.model.module.fp_layers.1.1.voxel_layers.10.fc.2.weight')
+
+            new_pretrained_dict[name] = v
+        missing_keys, unexp_keys = model.load_state_dict(new_pretrained_dict, strict=False)
+        assert len(missing_keys) == 46
+        assert len(unexp_keys) == 0
+        start_epoch = 0
+
+        '''
+        # CODE TO TRAIN FROM LAST CHECKPOINT OF CONDITIONAL MODEL
+        ckpt = torch.load(opt.model)
+        model.load_state_dict(ckpt["model_state"])
         optimizer.load_state_dict(ckpt['optimizer_state'])
         start_epoch = torch.load(opt.model)['epoch'] + 1
+        '''
     else:
         start_epoch = 0
 
