@@ -80,20 +80,12 @@ class CrossAttention(nn.Module):
     def __init__(self, query_dim, num_groups, context_dim, D=3):
         super(CrossAttention, self).__init__()
         assert query_dim % num_groups == 0
-        if D == 3:
-            self.q = nn.Conv3d(query_dim, query_dim, 1)     # 64,64 =>      Bx64x16x16x16 => Bx77x4096
-            self.k = nn.Conv1d(context_dim, query_dim, 1)   # 1024,64 =>    Bx77x1024   => Bx77x64
-            self.v = nn.Conv1d(context_dim, query_dim, 1)   # 1024,64 =>    Bx77x1024   => Bx77x64
+        self.q = nn.Conv3d(query_dim, query_dim, 1)     # 64,64 =>      Bx64x16x16x16 => Bx77x4096
+        self.k = nn.Conv1d(context_dim, query_dim, 1)   # 1024,64 =>    Bx77x1024   => Bx77x64
+        self.v = nn.Conv1d(context_dim, query_dim, 1)   # 1024,64 =>    Bx77x1024   => Bx77x64
 
-            self.out = nn.Conv3d(query_dim, query_dim, 1)   # 64,64
-        '''
-        elif D == 1:
-            self.q = nn.Conv1d(query_dim, query_dim, 1)
-            self.k = nn.Conv1d(context_dim, query_dim, 1)
-            self.v = nn.Conv1d(context_dim, query_dim, 1)
+        self.out = nn.Conv3d(query_dim, query_dim, 1)   # 64,64
 
-            self.out = nn.Conv1d(context_dim, query_dim, 1)
-        '''
         self.norm = nn.GroupNorm(num_groups, query_dim)
         self.nonlin = Swish()
         self.context_dim = context_dim
@@ -106,9 +98,9 @@ class CrossAttention(nn.Module):
         
         random_n = random.randrange(0, 10000)
         if save_matrices:
-            torch.save(x, f"./exps/exp_12/matrices/x_{epoch}_{random_n}.pt")
-            torch.save(context, f"./exps/exp_12/matrices/context_{epoch}_{random_n}.pt")
-            with open(f"./exps/exp_12/matrices/text_{epoch}_{random_n}.txt", "w") as f:
+            torch.save(x, f"./exps/exp_14/matrices/x_{epoch}_{random_n}.pt")
+            torch.save(context, f"./exps/exp_14/matrices/context_{epoch}_{random_n}.pt")
+            with open(f"./exps/exp_14/matrices/text_{epoch}_{random_n}.txt", "w") as f:
                 for text_pt in text:
                     f.write(text_pt + "\n")
 
@@ -118,17 +110,17 @@ class CrossAttention(nn.Module):
         k = self.k(context.permute(0,2,1))          #Bx77x1024 => Bx1024x77 => Bx64x77
         v = self.v(context.permute(0,2,1))          #Bx77x1024 => Bx77x64
 
-        qk = torch.matmul(q.permute(0,2,1), k) #* (int(C) ** (-0.5))
+        qk = torch.matmul(q.permute(0,2,1), k)* (int(C) ** (-0.5))
 
         w = self.sm(qk)
 
         h = torch.matmul(v, w.permute(0, 2, 1))
         if save_matrices:
-            torch.save(h,   f"./exps/exp_12/matrices/v*w_{epoch}_{random_n}.pt")
+            torch.save(h, f"./exps/exp_14/matrices/v*w_{epoch}_{random_n}.pt")
 
         h = h.reshape(B,C,*x.shape[2:])
 
-        h = self.out(h)
+        h = self.out(h) # equivalent to to_out of StableDiffusion
 
         x = h + x
  
@@ -138,6 +130,31 @@ class CrossAttention(nn.Module):
             torch.save(qk,  f"./exps/exp_12/matrices/qk_{epoch}_{random_n}.pt")
             torch.save(h,   f"./exps/exp_12/matrices/h_{epoch}_{random_n}.pt")
             torch.save(x,   f"./exps/exp_12/matrices/out_{epoch}_{random_n}.pt")
+
+        return x
+
+
+class FeedForward(nn.Module):
+    def __init__(self, query_dim, num_groups, mult=4, dropout=0.):
+        super(FeedForward, self).__init__()
+        assert query_dim % num_groups == 0
+        inner_dim = query_dim * mult
+
+        self.net = nn.Sequential(
+                                    nn.Conv3d(query_dim, inner_dim, 1),
+                                    Swish(),
+                                    nn.Dropout(dropout),
+                                    nn.Conv3d(inner_dim, query_dim, 1)
+                                )
+
+        self.norm = nn.GroupNorm(num_groups, query_dim)
+        self.nonlin = Swish()
+
+    def forward(self, x, context=None, text=None, epoch=0, save_matrices=False):
+        B, C = x.shape[:2]                  
+        
+        x = self.net(x) + x
+        x = self.nonlin(self.norm(x))
 
         return x
 
@@ -166,7 +183,11 @@ class PVConv(nn.Module):
         ]
 
         if attention:
-            voxel_layers.append(CrossAttention(out_channels, 8, self.context_dim))
+            voxel_layers += [
+                CrossAttention(out_channels, 8, self.context_dim),                
+                FeedForward(out_channels, 8, dropout=dropout),
+                nn.Conv3d(out_channels, out_channels, kernel_size, stride=1, padding=kernel_size // 2)                
+                ]
 
         if with_se:
             voxel_layers.append(SE3d(out_channels, use_relu=with_se_relu))
