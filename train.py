@@ -1,5 +1,5 @@
 import copy
-from email.policy import default
+from email.policy import default, strict
 from types import new_class
 from typing import Iterator
 import argparse
@@ -176,7 +176,7 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
 
     elif opt.distribution_type == 'single':
         def _transform_(m):
-            return nn.parallel.DataParallel(m)
+            return nn.parallel.DataParallel(m, device_ids=[0,1,2])
         model = model.cuda()
         model.multi_gpu_wrapper(_transform_)
 
@@ -250,12 +250,14 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
             elif opt.train_ds == 'text2shape':
                 x = data['pointcloud'].transpose(1,2)                   # TODO: check if pointclouds have the same size for both ShapeNet and Text2Shape          
                 noises_batch = noises_init[data['idx']].transpose(1,2)  # TODO: check if idx are the same for both ShapeNet and Text2Shape
+                # cut text_embed to max length in the batch
                 text_embed = data["text_embed"]
                 text = data["text"]         
 
             '''
             train diffusion
             '''
+            
 
             if opt.distribution_type == 'multi' or (opt.distribution_type is None and gpu is not None):
                 x = x.cuda()
@@ -278,7 +280,7 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
                     print(f'NaN values in noises')
 
             #print('is the text embed free from all zeros rows? ', torch.count_nonzero(sum_text_embed)==sum_text_embed.shape[0])
-
+            
             # apply clever padding: truncate text embeds to length of longest sequence: add zeros if needed
             # find longest sequence in batch. text_embed has shape (B,60,1024)
             sum_text_embed = torch.sum(text_embed, dim=2)
@@ -347,7 +349,6 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
                         ))
 
         if (epoch + 1) % opt.diagIter == 0 and should_diag:
-            model.pvd.eval()
             logger.info('Computing KL for diagnosis on training set...')
 
             model.pvd.eval()
@@ -578,13 +579,13 @@ def parse_args():
     parser.add_argument('--train_ds', default='text2shape', choices=['shapenet', 'text2shape'], help='dataset to use for training')
     parser.add_argument('--sn_dataroot', default='../PVD/data/ShapeNetCore.v2.PC15k/', help="dataroot of ShapeNet")
     parser.add_argument('--t2s_dataroot', default='/media/data2/aamaduzzi/datasets/Text2Shape/', help="dataroot of ShapeNet")
-    parser.add_argument('--category', default='all')
+    parser.add_argument('--category', default='chair')
     parser.add_argument('--bs', type=int, default=64, help='input batch size')
     parser.add_argument('--workers', type=int, default=2, help='workers')
     parser.add_argument('--n_epochs', type=int, default=10000, help='number of epochs to train for')
     parser.add_argument('--nc', default=3)
     parser.add_argument('--npoints', default=2048)
-    parser.add_argument('--output_dir', type=str, default="./exps/exp_9", help='directory for experiments logging',)
+    parser.add_argument('--output_dir', type=str, default="./exps/exp_14", help='directory for experiments logging',)
 
     # PVD
     # noise schedule
@@ -609,7 +610,7 @@ def parse_args():
     parser.add_argument('--lr_gamma', type=float, default=0.998, help='lr decay for EBM')
 
     # path to checkpt of trained model and PVD model
-    parser.add_argument('--model', default='', help="path to model (to continue training)")
+    parser.add_argument('--model', default='../PVD/ckpt/generation/chair_1799.pth', help="path to model (to continue training)")
     parser.add_argument('--pvd_model', default='', help="path to PVD model (to freeze PVD")
 
 
@@ -631,10 +632,10 @@ def parse_args():
                         help='GPU id to use. None means using all available GPUs.')
 
     # evaluation params
-    parser.add_argument('--saveIter', default=50, help='unit: epoch when checkpoint is saved')  
+    parser.add_argument('--saveIter', default=100, help='unit: epoch when checkpoint is saved')  
     parser.add_argument('--diagIter', default=100, help='unit: epoch when diagnosis is done')
     parser.add_argument('--vizIter', default=100, help='unit: epoch when visualization is done')
-    parser.add_argument('--valIter', default=150, help='unit: epoch when validation is done')
+    parser.add_argument('--valIter', default=100, help='unit: epoch when validation is done')
     parser.add_argument('--val_size', default=1000, help='number of clouds evaluated during validation')
     parser.add_argument('--print_freq', default=100, help='unit: iter where gradients and step are printed')
     parser.add_argument('--manualSeed', default=42, type=int, help='random seed')
