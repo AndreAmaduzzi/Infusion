@@ -200,6 +200,33 @@ class GaussianDiffusion:
 
         assert img_t.shape == shape
         return img_t
+    
+    def test_p_sample_loop(self, denoise_fn, shape, device, condition=None,
+                      noise_fn=torch.randn, constrain_fn=lambda x, t:x,
+                      clip_denoised=True, max_timestep=None, keep_running=False):
+        """
+        Generate samples
+        keep_running: True if we run 2 x num_timesteps, False if we just run num_timesteps
+
+        """
+        if max_timestep is None:
+            final_time = self.num_timesteps
+        else:
+            final_time = max_timestep
+
+        assert isinstance(shape, (tuple, list))
+        print('device: ', device)
+        img_t = noise_fn(size=shape, dtype=torch.float, device=device)
+        for t in reversed(range(0, final_time if not keep_running else len(self.betas))):
+            img_t = constrain_fn(img_t, t)
+            t_ = torch.empty(shape[0], dtype=torch.int64, device=device).fill_(t)
+            img_t = self.p_sample(denoise_fn=denoise_fn, data=img_t,t=t_, noise_fn=noise_fn, condition=condition,
+                                  clip_denoised=clip_denoised, return_pred_xstart=False).detach()
+
+
+        assert img_t.shape == shape
+        return img_t
+
 
     def p_sample_loop_trajectory(self, denoise_fn, shape, device, freq, condition=None,
                                  noise_fn=torch.randn,clip_denoised=True, keep_running=False):
@@ -376,11 +403,12 @@ class PVD(nn.Module):
         assert losses.shape == t.shape == torch.Size([B])
         return losses
 
-    def gen_samples(self, shape, device, noise_fn=torch.randn, condition=None,
-                    clip_denoised=True,
+    def gen_samples(self, shape, device, noise_fn=torch.randn, condition=None, constrain_fn=lambda x, t:x,
+                    clip_denoised=True, max_timestep=None,
                     keep_running=False):
-        return self.diffusion.p_sample_loop(self._denoise, shape=shape, device=device, noise_fn=noise_fn,
-                                            condition=condition, clip_denoised=clip_denoised,
+
+        return self.diffusion.test_p_sample_loop(self._denoise, shape=shape, device=device, noise_fn=noise_fn,
+                                            condition=condition, constrain_fn=constrain_fn, clip_denoised=clip_denoised, max_timestep=None,
                                             keep_running=keep_running)
 
     def gen_sample_traj(self, shape, device, freq, noise_fn=torch.randn, condition=None,
