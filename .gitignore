@@ -3,4 +3,4 @@
 /test/*
 *.ipynb
 /exps/*
-test*
+test_*
