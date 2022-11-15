@@ -2,6 +2,7 @@ import numpy as np
 import torch
 from torch import nn
 from models.pvcnn import PVCNN2Base
+import random
 
 def get_betas(schedule_type, b_start, b_end, time_num):
     if schedule_type == 'linear':
@@ -215,8 +216,9 @@ class GaussianDiffusion:
             final_time = max_timestep
 
         assert isinstance(shape, (tuple, list))
-        print('device: ', device)
         img_t = noise_fn(size=shape, dtype=torch.float, device=device)
+        #n = random.randrange(0,10000)
+        #torch.save(img_t, f'noise_{n}')
         for t in reversed(range(0, final_time if not keep_running else len(self.betas))):
             img_t = constrain_fn(img_t, t)
             t_ = torch.empty(shape[0], dtype=torch.int64, device=device).fill_(t)
@@ -407,9 +409,12 @@ class PVD(nn.Module):
                     clip_denoised=True, max_timestep=None,
                     keep_running=False):
 
-        return self.diffusion.test_p_sample_loop(self._denoise, shape=shape, device=device, noise_fn=noise_fn,
-                                            condition=condition, constrain_fn=constrain_fn, clip_denoised=clip_denoised, max_timestep=None,
+        return self.diffusion.test_p_sample_loop(self._denoise, shape=shape, device=device, condition=condition, noise_fn=noise_fn,
+                                            constrain_fn=constrain_fn, clip_denoised=clip_denoised, max_timestep=None,
                                             keep_running=keep_running)
+
+        #return self.diffusion.test_p_sample_loop(self._denoise, shape=shape, device=device, condition=condition, noise_fn=noise_fn,
+        #                                    clip_denoised=clip_denoised, keep_running=keep_running)
 
     def gen_sample_traj(self, shape, device, freq, noise_fn=torch.randn, condition=None,
                     clip_denoised=True,keep_running=False):

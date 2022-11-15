@@ -165,7 +165,8 @@ def create_pointnet2_fp_modules(fp_blocks, in_channels, sa_in_channels, embed_di
             out_channels = int(r * out_channels)
             for p in range(num_blocks):
                 #attention = (c+1) % 2 == 0 and c < len(fp_blocks) - 1 and use_att and p == 0
-                attention = (c+1) % 2 == 0 and c <= len(fp_blocks)  and use_att and p == 0
+                #attention = (c+1) % 2 == 0 and c <= len(fp_blocks)  and use_att and p == 0
+                attention = False
                 if voxel_resolution is None:
                     block = SharedMLP
                 else:

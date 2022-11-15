@@ -39,6 +39,16 @@ def set_seed(opt):
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = True
 
+def set_new_seed(opt):
+    if opt.manualSeed is None:
+        opt.manualSeed = random.randint(1, 10000)
+    np.random.seed(opt.manualSeed)
+    random.seed(opt.manualSeed)
+    torch.manual_seed(opt.manualSeed)
+    torch.cuda.manual_seed_all(opt.manualSeed)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+
 def getGradNorm(net):
     pNorm = torch.sqrt(sum(torch.sum(p ** 2) for p in net.parameters()))
     gradNorm = torch.sqrt(sum(torch.sum(p.grad ** 2) for p in net.parameters()))
@@ -74,7 +84,7 @@ def get_text2shape_dataset(dataroot, category):
         from_shapenet_v2=False,
         conditional_setup=True,
         language_model="t5-11b",
-        lowercase_text=False,
+        lowercase_text=True,
         max_length=77,
         padding=False,
         scale_mode="global_unit")
@@ -86,7 +96,7 @@ def get_text2shape_dataset(dataroot, category):
         from_shapenet_v2=False,
         conditional_setup=True,
         language_model="t5-11b",
-        lowercase_text=False,
+        lowercase_text=True,
         max_length=77,
         padding=False,
         scale_mode="global_unit"
@@ -128,7 +138,7 @@ def get_dataloader(opt, train_dataset, val_dataset=None):
 
 def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
 
-    set_seed(opt)
+    set_new_seed(opt)
     logger = setup_logging(output_dir)
     if opt.distribution_type == 'multi':
         should_diag = gpu==0
@@ -176,7 +186,7 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
 
     elif opt.distribution_type == 'single':
         def _transform_(m):
-            return nn.parallel.DataParallel(m, device_ids=[0,1,2])
+            return nn.parallel.DataParallel(m)
         model = model.cuda()
         model.multi_gpu_wrapper(_transform_)
 
@@ -193,45 +203,74 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
 
     lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, opt.lr_gamma)
 
-    if opt.model!='':
-        # CODE TO TRAIN FROM FROZEN UNCONDITIONAL PVD
-        ckpt = torch.load(opt.model)
-        new_pretrained_dict = OrderedDict()
-        pretrained_dict = ckpt["model_state"]
-        for k, v in pretrained_dict.items():
-            if not k.startswith('pvd'):
-                name = "pvd." + k
-            name = name.replace('pvd.model.module.sa_layers.1.0.voxel_layers.7.fc.0.weight', 'pvd.model.module.sa_layers.1.0.voxel_layers.10.fc.0.weight')
-            name = name.replace('pvd.model.module.sa_layers.1.0.voxel_layers.7.fc.2.weight', 'pvd.model.module.sa_layers.1.0.voxel_layers.10.fc.2.weight')
-            name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.0.weight', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.0.weight')
-            name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.0.bias', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.0.bias')
-            name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.1.weight', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.1.weight')
-            name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.1.bias', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.1.bias')
-            name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.3.weight', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.3.weight')
-            name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.3.bias', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.3.bias')
-            name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.4.weight', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.4.weight')
-            name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.4.bias', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.4.bias')
-            name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.6.weight', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.6.weight')
-            name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.6.bias', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.6.bias')
-            name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.7.weight', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.7.weight')
-            name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.7.bias', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.7.bias')
-            name = name.replace('pvd.model.module.fp_layers.1.1.voxel_layers.7.fc.0.weight', 'pvd.model.module.fp_layers.1.1.voxel_layers.10.fc.0.weight')
-            name = name.replace('pvd.model.module.fp_layers.1.1.voxel_layers.7.fc.2.weight', 'pvd.model.module.fp_layers.1.1.voxel_layers.10.fc.2.weight')
-
-            new_pretrained_dict[name] = v
-        missing_keys, unexp_keys = model.load_state_dict(new_pretrained_dict, strict=False)
-        assert len(missing_keys) == 46
-        assert len(unexp_keys) == 0
-        start_epoch = 0
-
-        '''
-        # CODE TO TRAIN FROM LAST CHECKPOINT OF CONDITIONAL MODEL
+    if opt.model != '':
+        logger.info('Loading conditional PVD from last checkpoint, to resume training...')
         ckpt = torch.load(opt.model)
         model.load_state_dict(ckpt["model_state"])
         optimizer.load_state_dict(ckpt['optimizer_state'])
         start_epoch = torch.load(opt.model)['epoch'] + 1
-        '''
     else:
+        if opt.pvd_model!='':
+            logger.info('Loading unconditional pre-trained PVD')
+            # CODE TO TRAIN FROM FROZEN UNCONDITIONAL PVD
+            ckpt = torch.load(opt.pvd_model)
+            new_pretrained_dict = OrderedDict()
+            pretrained_dict = ckpt["model_state"]
+            for k, v in pretrained_dict.items():
+                if not k.startswith('pvd'):
+                    name = "pvd." + k
+                name = name.replace('pvd.model.module.sa_layers.1.0.voxel_layers.7.fc.0.weight', 'pvd.model.module.sa_layers.1.0.voxel_layers.10.fc.0.weight')
+                name = name.replace('pvd.model.module.sa_layers.1.0.voxel_layers.7.fc.2.weight', 'pvd.model.module.sa_layers.1.0.voxel_layers.10.fc.2.weight')
+                name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.0.weight', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.0.weight')
+                name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.0.bias', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.0.bias')
+                name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.1.weight', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.1.weight')
+                name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.1.bias', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.1.bias')
+                name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.3.weight', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.3.weight')
+                name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.3.bias', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.3.bias')
+                name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.4.weight', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.4.weight')
+                name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.4.bias', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.4.bias')
+                name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.6.weight', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.6.weight')
+                name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.6.bias', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.6.bias')
+                name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.7.weight', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.7.weight')
+                name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.7.bias', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.7.bias')
+                name = name.replace('pvd.model.module.fp_layers.1.1.voxel_layers.7.fc.0.weight', 'pvd.model.module.fp_layers.1.1.voxel_layers.10.fc.0.weight')
+                name = name.replace('pvd.model.module.fp_layers.1.1.voxel_layers.7.fc.2.weight', 'pvd.model.module.fp_layers.1.1.voxel_layers.10.fc.2.weight')
+
+                name = name.replace('pvd.model.module.sa_layers.0.0.voxel_layers.7.fc.0.weight', 'pvd.model.module.sa_layers.0.0.voxel_layers.9.fc.0.weight')
+                name = name.replace('pvd.model.module.sa_layers.0.0.voxel_layers.7.fc.2.weight', 'pvd.model.module.sa_layers.0.0.voxel_layers.9.fc.2.weight')
+                name = name.replace('pvd.model.module.sa_layers.0.1.voxel_layers.7.fc.0.weight', 'pvd.model.module.sa_layers.0.1.voxel_layers.9.fc.0.weight')
+                name = name.replace('pvd.model.module.sa_layers.0.1.voxel_layers.7.fc.2.weight', 'pvd.model.module.sa_layers.0.1.voxel_layers.9.fc.2.weight')            
+                name = name.replace('pvd.model.module.sa_layers.2.0.voxel_layers.7.fc.0.weight', 'pvd.model.module.sa_layers.2.0.voxel_layers.9.fc.0.weight')
+                name = name.replace('pvd.model.module.sa_layers.2.0.voxel_layers.7.fc.2.weight', 'pvd.model.module.sa_layers.2.0.voxel_layers.9.fc.2.weight')
+                
+                name = name.replace('pvd.model.module.fp_layers.0.1.voxel_layers.7.fc.0.weight', 'pvd.model.module.fp_layers.0.1.voxel_layers.9.fc.0.weight')
+                name = name.replace('pvd.model.module.fp_layers.0.1.voxel_layers.7.fc.2.weight', 'pvd.model.module.fp_layers.0.1.voxel_layers.9.fc.2.weight')
+                name = name.replace('pvd.model.module.fp_layers.0.2.voxel_layers.7.fc.0.weight', 'pvd.model.module.fp_layers.0.2.voxel_layers.9.fc.0.weight')
+                name = name.replace('pvd.model.module.fp_layers.0.2.voxel_layers.7.fc.2.weight', 'pvd.model.module.fp_layers.0.2.voxel_layers.9.fc.2.weight')            
+                name = name.replace('pvd.model.module.fp_layers.0.3.voxel_layers.7.fc.0.weight', 'pvd.model.module.fp_layers.0.3.voxel_layers.9.fc.0.weight')
+                name = name.replace('pvd.model.module.fp_layers.0.3.voxel_layers.7.fc.2.weight', 'pvd.model.module.fp_layers.0.3.voxel_layers.9.fc.2.weight')
+                name = name.replace('pvd.model.module.fp_layers.1.1.voxel_layers.10.fc.0.weight', 'pvd.model.module.fp_layers.1.1.voxel_layers.9.fc.0.weight')
+                name = name.replace('pvd.model.module.fp_layers.1.1.voxel_layers.10.fc.2.weight', 'pvd.model.module.fp_layers.1.1.voxel_layers.9.fc.2.weight')            
+                name = name.replace('pvd.model.module.fp_layers.1.2.voxel_layers.7.fc.0.weight', 'pvd.model.module.fp_layers.1.2.voxel_layers.9.fc.0.weight')
+                name = name.replace('pvd.model.module.fp_layers.1.2.voxel_layers.7.fc.2.weight', 'pvd.model.module.fp_layers.1.2.voxel_layers.9.fc.2.weight')   
+                name = name.replace('pvd.model.module.fp_layers.1.3.voxel_layers.7.fc.0.weight', 'pvd.model.module.fp_layers.1.3.voxel_layers.9.fc.0.weight')
+                name = name.replace('pvd.model.module.fp_layers.1.3.voxel_layers.7.fc.2.weight', 'pvd.model.module.fp_layers.1.3.voxel_layers.9.fc.2.weight') 
+                name = name.replace('pvd.model.module.fp_layers.2.1.voxel_layers.7.fc.0.weight', 'pvd.model.module.fp_layers.2.1.voxel_layers.9.fc.0.weight')
+                name = name.replace('pvd.model.module.fp_layers.2.1.voxel_layers.7.fc.2.weight', 'pvd.model.module.fp_layers.2.1.voxel_layers.9.fc.2.weight')   
+                name = name.replace('pvd.model.module.fp_layers.2.2.voxel_layers.7.fc.0.weight', 'pvd.model.module.fp_layers.2.2.voxel_layers.9.fc.0.weight')
+                name = name.replace('pvd.model.module.fp_layers.2.2.voxel_layers.7.fc.2.weight', 'pvd.model.module.fp_layers.2.2.voxel_layers.9.fc.2.weight') 
+                name = name.replace('pvd.model.module.fp_layers.3.1.voxel_layers.7.fc.0.weight', 'pvd.model.module.fp_layers.3.1.voxel_layers.9.fc.0.weight')
+                name = name.replace('pvd.model.module.fp_layers.3.1.voxel_layers.7.fc.2.weight', 'pvd.model.module.fp_layers.3.1.voxel_layers.9.fc.2.weight')  
+                name = name.replace('pvd.model.module.fp_layers.3.2.voxel_layers.7.fc.0.weight', 'pvd.model.module.fp_layers.3.2.voxel_layers.9.fc.0.weight')
+                name = name.replace('pvd.model.module.fp_layers.3.2.voxel_layers.7.fc.2.weight', 'pvd.model.module.fp_layers.3.2.voxel_layers.9.fc.2.weight')                     
+
+                new_pretrained_dict[name] = v
+            missing_keys, unexp_keys = model.load_state_dict(new_pretrained_dict, strict=False)
+            print('missing keys: ', len(missing_keys))
+            print('unexp keys: ', len(unexp_keys))
+            #assert len(missing_keys) == 46
+            assert len(unexp_keys) == 0
+            start_epoch = 0
         start_epoch = 0
 
     def new_x_chain(x, num_chain):
@@ -241,7 +280,76 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
 
         if opt.distribution_type == 'multi':
             train_sampler.set_epoch(epoch)
+        torch.backends.cudnn.deterministic = False  # if True, I would get always the same noise when during training
+        #print('epoch ', epoch)
+        #print('Deterministic? ', torch.backends.cudnn.deterministic)
+        
+        if (epoch+1) % opt.compIter == 0 and should_diag:
+            logger.info('Comparing our clouds with PVD unconditional, while fixing same seed')
+            # save current seed
+            curr_torch_seed = torch.get_rng_state()
+            curr_np_seed = np.random.get_state()
+            # take saved seed from unconditional PVD inference
+            pvd_torch_seed = torch.load('../PVD/output/get_clouds_and_seed/2022-11-02-18-14-40/syn/torch_seed.pt')
+            pvd_np_seed_arr = np.load('../PVD/output/get_clouds_and_seed/2022-11-02-18-14-40/syn/np_seed_array.npy')
+            pvd_pos = np.load('../PVD/output/get_clouds_and_seed/2022-11-02-18-14-40/syn/np_pos.npy')
+            pvd_has_gauss = np.load('../PVD/output/get_clouds_and_seed/2022-11-02-18-14-40/syn/np_has_gauss.npy')
+            pvd_cached_gauss = np.load('../PVD/output/get_clouds_and_seed/2022-11-02-18-14-40/syn/np_cached_gauss.npy')
+            torch.backends.cudnn.deterministic = True
+            #print(type(pvd_np_seed))
+            # set seed
+            torch.set_rng_state(pvd_torch_seed)
+            rand_state = ('MT19937', pvd_np_seed_arr, pvd_pos, pvd_has_gauss, pvd_cached_gauss)
+            np.random.set_state(rand_state)
 
+            # generate 1000 clouds with this seed
+            x_pvd = torch.load('../PVD/output/get_clouds_and_seed/2022-11-02-18-14-40/syn/samples.pth')
+            comp_size = x_pvd.shape[0]
+            random_1 = torch.randn((1), dtype=torch.float, device='cuda:0')
+            random_2 = torch.randn((1), dtype=torch.float, device='cuda:0')
+            gen_pcs = []
+            for i in tqdm(range(0, math.ceil(comp_size / opt.bs)), 'Generate'):
+                model.pvd.eval()
+                with torch.no_grad():
+                    val_batch = next(iter(val_dataloader))
+                    text_embed_val = val_batch["text_embed"].cuda()
+                    x_val = val_batch['pointcloud'].transpose(1,2).cuda() 
+                    x_gen_eval = model.get_clouds(text_embed_val, x_val)
+                    # transpose shapes because metrics want (2048, 3) instead of (3, 2048)
+                    x_gen_eval = x_gen_eval.transpose(1,2)
+                    gen_pcs.append(x_gen_eval.detach().cpu())
+
+            gen_pcs = torch.cat(gen_pcs, dim=0)[:comp_size]
+
+            visualize_pointcloud_batch(f'exps/exp_16/syn/pvd_clouds_{epoch}.png',
+                                        x_pvd[:20], None, None,
+                                        None)
+
+            visualize_pointcloud_batch(f'exps/exp_16/syn/gen_clouds_{epoch}.png',
+                                        gen_pcs[:20], None, None,
+                                        None)
+
+            print('Generated clouds: ', gen_pcs.shape)
+            print('PVD clouds: ', x_pvd.shape)
+
+            x_gen = normalize_clouds_for_validation(gen_pcs, mode='shape_bbox', logger=logger)
+            x_pvd = normalize_clouds_for_validation(x_pvd, mode='shape_bbox', logger=logger)
+            
+            # draw some clouds on Tensorboard
+            writer.add_mesh('infusion/pointcloud', x_gen[:3], global_step=epoch)
+            writer.add_mesh('pvd/pointcloud', x_pvd[:3], global_step=epoch)
+
+            # compute mean chamfer loss between corresponding clouds from unconditional and conditional PVD
+            chamfer_dist = chamfer(x_gen, x_pvd)
+            chamfer_dist = chamfer_dist[0]
+            mean_chamfer = torch.mean(chamfer_dist)
+            logger.info('Conditional vs Unconditional mean CD: %.6f' %mean_chamfer)
+        
+            # reset the seed to previous value
+            torch.set_rng_state(curr_torch_seed)
+            np.random.set_state(curr_np_seed)
+            torch.backends.cudnn.deterministic = False
+        
         for i, data in enumerate(train_dataloader):
             if opt.train_ds == 'shapenet':
                 x = data['train_points'].transpose(1,2)                 # TODO: check if pointclouds have the same size for both ShapeNet and Text2Shape 
@@ -257,7 +365,6 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
             '''
             train diffusion
             '''
-            
 
             if opt.distribution_type == 'multi' or (opt.distribution_type is None and gpu is not None):
                 x = x.cuda()
@@ -283,6 +390,7 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
             
             # apply clever padding: truncate text embeds to length of longest sequence: add zeros if needed
             # find longest sequence in batch. text_embed has shape (B,60,1024)
+            
             sum_text_embed = torch.sum(text_embed, dim=2)
             max_seq_len = 0
             max_seq_len_idx = 0
@@ -294,7 +402,7 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
             
             #print('longest len: ', max_seq_len)
             #print('longest sentence: ', text[max_seq_len_idx])
-
+            
             text_embed = text_embed[:,:max_seq_len, :]
 
             model.pvd.train()
@@ -319,15 +427,16 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
             writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], i)
             writer.add_scalar('train/grad', netgradNorm, i)
             writer.flush()
-            
+            '''
             for idx, p in enumerate(model.parameters()):
                 param = p
                 # check if PVD params are updated correctly
-                '''
                 if idx==10:
                     if i==0:
+                        old_q = copy.deepcopy(model.state_dict()['pvd.model.module.sa_layers.0.0.voxel_layers.7.q.weight'])
                         old_param_val = copy.deepcopy(param.data)   # param.data is a pointer! In this way, we only get its value
                     else:
+                        new_q = copy.deepcopy(model.state_dict()['pvd.model.module.sa_layers.0.0.voxel_layers.7.q.weight'])
                         new_param_val = copy.deepcopy(param.data)
                         
                         if torch.equal(old_param_val, new_param_val):
@@ -335,10 +444,17 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
                         else:
                             print('PVD PARAM 10 updated correctly :) ')
                         old_param_val = new_param_val
-                '''
+
+                        if torch.equal(old_q, new_q):
+                            print('Q MATRIX not updated :( ')
+                        else:
+                            print('Q MATRIX updated correctly :) ')
+                        old_q = new_q
+                        
+
                 if torch.isnan(param.grad).any():
                     print('Nan gradient in pvd param ')
-
+            '''
 
             if i % opt.print_freq == 0 and should_diag:
                 logger.info('[{:>3d}/{:>3d}][{:>3d}/{:>3d}]    loss: {:>10.4f},    '
@@ -348,7 +464,7 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
                     netpNorm, netgradNorm,
                         ))
 
-        if (epoch + 1) % opt.diagIter == 0 and should_diag:
+        if (epoch+1) % opt.diagIter == 0 and should_diag:
             logger.info('Computing KL for diagnosis on training set...')
 
             model.pvd.eval()
@@ -369,7 +485,7 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
                 kl_stats['terms_bpd'].item(), kl_stats['prior_bpd_b'].item(), kl_stats['mse_bt'].item()
             ))
 
-        if (epoch + 1) % opt.saveIter == 0:
+        if (epoch+1) % opt.saveIter == 0:
             model.pvd.eval()
             logger.info('Saving checkpoint...')
             if should_diag:
@@ -386,12 +502,12 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
                 model.load_state_dict(
                     torch.load('%s/epoch_%d.pth' % (output_dir, epoch), map_location=map_location)['model_state'])
 
-        if (epoch + 1 ) % opt.valIter == 0 and should_diag:
+        if (epoch+1) % opt.valIter == 0 and should_diag:
 
             val_folder = os.path.join(output_dir,'validation')
             # build reference histogram for validation set
-            ref_hist = dict()
-            for i in range(len(val_dset)):
+            ref_hist = dict()  
+            for i in range(0, opt.val_size):
                 if val_dset[i]["model_id"] in ref_hist.keys():
                     ref_hist[val_dset[i]["model_id"]] += 1
                 else:
@@ -425,14 +541,21 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
             gen_pcs = normalize_clouds_for_validation(gen_pcs, mode='shape_bbox', logger=logger)
             ref_pcs = normalize_clouds_for_validation(ref_pcs, mode='shape_bbox', logger=logger)
 
+            chamfer_dist = chamfer(ref_pcs, gen_pcs)
+            chamfer_dist = chamfer_dist[0]
+            print('chamfer: ', chamfer_dist.shape)
+            np.save(os.path.join(val_folder, 'chamfer.npy'), chamfer_dist.cpu().numpy())
+            mean_chamfer = torch.mean(chamfer_dist)
+            print('mean chamfer: ', mean_chamfer)
+
             print('size of ref pcs: ', ref_pcs.shape)
             print('size of gen pcs: ', gen_pcs.shape)
             print('len of gen texts: ', len(texts))
 
             # Save
             logger.info('Saving point clouds and text...')
-            np.save(os.path.join(val_folder, 'out.npy'), gen_pcs.numpy())
-            np.save(os.path.join(val_folder, 'ref.npy'), ref_pcs.numpy())
+            np.save(os.path.join(val_folder, f'out_{epoch}.npy'), gen_pcs.numpy())
+            np.save(os.path.join(val_folder, f'ref_{epoch}.npy'), ref_pcs.numpy())
             count=0
             with open(os.path.join(val_folder, 'texts.txt'), 'w') as f:
                 for text in texts:
@@ -456,6 +579,7 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
             # CD related metrics
             writer.add_scalar('val/Coverage_CD', results['lgan_cov-CD'], i)
             writer.add_scalar('val/MMD_CD', results['lgan_mmd-CD'], i)
+            writer.add_scalar('val/Mean_Chamfer', mean_chamfer, i)
             #writer.add_scalar('val/1NN_CD', results['1-NN-CD-acc'], i)
             # JSD
             writer.add_scalar('val/JSD', results['jsd'], i)
@@ -464,8 +588,12 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
             logger.info('[Val] Coverage  | CD %.6f | EMD n/a' % (results['lgan_cov-CD'], ))
             logger.info('[Val] MinMatDis | CD %.6f | EMD n/a' % (results['lgan_mmd-CD'], ))
             logger.info('[Val] JsnShnDis | %.6f ' % (results['jsd']))
+            logger.info('[Val] Mean Chamfer Distance between Ref and Gen: %.6f ' % (mean_chamfer))
 
-        if (epoch + 1) % opt.vizIter == 0 and should_diag:
+
+            # TODO: Add chamfer between gen and ref
+
+        if (epoch+1) % opt.vizIter == 0 and should_diag:
                 model.pvd.eval()
                 logger.info('Generating clouds for visualization on training set...')
 
@@ -579,13 +707,13 @@ def parse_args():
     parser.add_argument('--train_ds', default='text2shape', choices=['shapenet', 'text2shape'], help='dataset to use for training')
     parser.add_argument('--sn_dataroot', default='../PVD/data/ShapeNetCore.v2.PC15k/', help="dataroot of ShapeNet")
     parser.add_argument('--t2s_dataroot', default='/media/data2/aamaduzzi/datasets/Text2Shape/', help="dataroot of ShapeNet")
-    parser.add_argument('--category', default='chair')
+    parser.add_argument('--category', default='all')
     parser.add_argument('--bs', type=int, default=64, help='input batch size')
     parser.add_argument('--workers', type=int, default=2, help='workers')
     parser.add_argument('--n_epochs', type=int, default=10000, help='number of epochs to train for')
     parser.add_argument('--nc', default=3)
     parser.add_argument('--npoints', default=2048)
-    parser.add_argument('--output_dir', type=str, default="./exps/exp_14", help='directory for experiments logging',)
+    parser.add_argument('--output_dir', type=str, default="./exps/exp_16", help='directory for experiments logging',)
 
     # PVD
     # noise schedule
@@ -610,8 +738,8 @@ def parse_args():
     parser.add_argument('--lr_gamma', type=float, default=0.998, help='lr decay for EBM')
 
     # path to checkpt of trained model and PVD model
-    parser.add_argument('--model', default='../PVD/ckpt/generation/chair_1799.pth', help="path to model (to continue training)")
-    parser.add_argument('--pvd_model', default='', help="path to PVD model (to freeze PVD")
+    parser.add_argument('--model', default='', help="path to model (to continue training)")
+    parser.add_argument('--pvd_model', default='', help="path to pre-trained unconditional PVD")
 
 
     # distributed training
@@ -632,10 +760,11 @@ def parse_args():
                         help='GPU id to use. None means using all available GPUs.')
 
     # evaluation params
-    parser.add_argument('--saveIter', default=100, help='unit: epoch when checkpoint is saved')  
-    parser.add_argument('--diagIter', default=100, help='unit: epoch when diagnosis is done')
-    parser.add_argument('--vizIter', default=100, help='unit: epoch when visualization is done')
-    parser.add_argument('--valIter', default=100, help='unit: epoch when validation is done')
+    parser.add_argument('--saveIter', default=50, help='unit: epoch when checkpoint is saved')  
+    parser.add_argument('--diagIter', default=50, help='unit: epoch when diagnosis is done')
+    parser.add_argument('--vizIter', default=50, help='unit: epoch when visualization is done')
+    parser.add_argument('--valIter', default=50, help='unit: epoch when validation is done')
+    parser.add_argument('--compIter', default=50, help='unit: epoch when comparison with unconditional PVD is done')
     parser.add_argument('--val_size', default=1000, help='number of clouds evaluated during validation')
     parser.add_argument('--print_freq', default=100, help='unit: iter where gradients and step are printed')
     parser.add_argument('--manualSeed', default=42, type=int, help='random seed')

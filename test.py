@@ -100,6 +100,16 @@ def get_test_dataloader(opt, test_dataset):
 def generate(model, opt):
 
     test_dataset = get_test_text2shape_dataset(opt.t2s_dataroot, opt.category)
+    ref_hist = dict()
+    texts = []
+    model_ids = []
+    for i in range(len(test_dataset)):
+        if test_dataset[i]["model_id"] in ref_hist.keys():
+            ref_hist[test_dataset[i]["model_id"]] += 1
+        else:
+            ref_hist[test_dataset[i]["model_id"]] = 1
+        texts.append(test_dataset[i]["text"])
+        model_ids.append(test_dataset[i]["model_id"])
 
     test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=opt.bs,
                                                   shuffle=False, num_workers=int(opt.workers), drop_last=False)
@@ -113,13 +123,13 @@ def generate(model, opt):
 
         for i, data in tqdm(enumerate(test_dataloader), total=len(test_dataloader), desc='Generating Samples'):
 
-            x = data['pointcloud'].transpose(1,2)   # reference clouds
+            x = data['pointcloud'].transpose(1,2).cuda()   # reference clouds
             text_embed = data['text_embed'].cuda()
             #m, s = data['mean'].float(), data['std'].float()   # in Text2Shape, we already do it when we initialize the dataset
             
-            x_gen_eval = model.get_clouds(text_embed, x)
-            gen = model.pvd.gen_samples(x.shape,
-                                       'cuda', clip_denoised=False).detach().cpu()
+            gen = model.get_clouds(text_embed, x)
+            #gen = model.pvd.gen_samples(x.shape,
+            #                           'cuda', clip_denoised=False).detach().cpu()
 
             gen = gen.transpose(1,2).contiguous()
             x = x.transpose(1,2).contiguous()
@@ -129,8 +139,8 @@ def generate(model, opt):
             samples.append(gen)
             ref.append(x)
 
-            visualize_pointcloud_batch(os.path.join(str(Path(opt.eval_path).parent), 'x.png'), gen[:64], None,
-                                       None, None)
+            #visualize_pointcloud_batch(os.path.join(str(Path(opt.eval_path).parent), 'x.png'), gen[:64], None,
+            #                           None, None)
 
         samples = torch.cat(samples, dim=0)
         ref = torch.cat(ref, dim=0)
@@ -139,9 +149,9 @@ def generate(model, opt):
 
         torch.save(samples, opt.eval_path)
 
-    return ref
+    return ref, ref_hist, texts, model_ids
 
-def evaluate_gen(opt, ref_pcs, logger):
+def evaluate_gen(opt, ref_pcs, ref_hist, texts, model_ids, logger):
 
     if ref_pcs is None:
         test_dataset = get_test_text2shape_dataset(opt.dataroot, opt.category)
@@ -150,9 +160,9 @@ def evaluate_gen(opt, ref_pcs, logger):
         ref = []
         for data in tqdm(test_dataloader, total=len(test_dataloader), desc='Generating Samples'):
             x = data['pointcloud']  # reference clouds
-            m, s = data['mean'].float(), data['std'].float()
+            #m, s = data['mean'].float(), data['std'].float()
 
-            ref.append(x*s + m)
+            #ref.append(x*s + m)
 
         ref_pcs = torch.cat(ref, dim=0).contiguous()
 
@@ -163,16 +173,25 @@ def evaluate_gen(opt, ref_pcs, logger):
     logger.info("Generation sample size:%s reference size: %s"
           % (sample_pcs.size(), ref_pcs.size()))
 
+    np.save(os.path.join(Path(opt.eval_path).parent, 'ref.npy'), ref_pcs.cpu().numpy())
+    np.save(os.path.join(Path(opt.eval_path).parent, 'out.npy'), sample_pcs.cpu().numpy())
 
     # Compute metrics
-    results = evaluation_metrics.compute_all_metrics(sample_pcs, ref_pcs, opt.bs)
+    print('samples: ', sample_pcs.shape)
+    print('ref: ', ref_pcs.shape)
+    chamfer_dist = chamfer(ref_pcs, sample_pcs)
+    chamfer_dist = chamfer_dist[0]
+    print('chamer: ', chamfer_dist.shape)
+    np.save(os.path.join(Path(opt.eval_path).parent, 'chamfer.npy'), chamfer_dist.cpu().numpy())
+
+    results = evaluation_metrics.compute_all_metrics(sample_pcs.cuda(), ref_pcs.cuda(), opt.bs, model_ids=model_ids, texts=texts, save_dir=Path(opt.eval_path).parent, ref_hist=ref_hist)
     results = {k: (v.cpu().detach().item()
                    if not isinstance(v, float) else v) for k, v in results.items()}
 
     print(results)
     logger.info(results)
 
-    jsd = evaluation_metrics.jsd_between_point_cloud_sets(sample_pcs.numpy(), ref_pcs.numpy())
+    jsd = evaluation_metrics.jsd_between_point_cloud_sets(sample_pcs.cpu().numpy(), ref_pcs.cpu().numpy())
     print('JSD: {}'.format(jsd))
     logger.info('JSD: {}'.format(jsd))
 
@@ -182,8 +201,6 @@ def main():
         opt.beta_start = 1e-5
         opt.beta_end = 0.008
         opt.schedule_type = 'warm0.1'
-
-    logger = setup_logging(opt.eval_dir)
 
     model = Infusion(opt)
 
@@ -197,27 +214,27 @@ def main():
 
     model.pvd.eval()
 
+
     with torch.no_grad():
-
-        logger.info("Resume Path:%s" % opt.model)
-
+        print('Loading model ', opt.model)
         resumed_param = torch.load(opt.model)
         model.load_state_dict(resumed_param['model_state'])
         epoch= resumed_param['epoch']
-        outf_syn = os.path.join(opt.eval_dir + f'_{epoch}', 'syn')
-        if not os.path.exists(outf_syn):
-            outf_syn = os.makedirs(outf_syn)
+        outf_dir = os.path.join(opt.eval_dir, f'epoch_{epoch}')
+        print('outf_dir: ', outf_dir)
+        if not os.path.exists(outf_dir):
+            outf_dir = os.makedirs(outf_dir)
+        logger = setup_logging(outf_dir)
         
-
         ref = None
         if opt.generate:
-            opt.eval_path = os.path.join(outf_syn, 'samples.pth')
+            opt.eval_path = os.path.join(outf_dir, 'samples.pth')
             Path(opt.eval_path).parent.mkdir(parents=True, exist_ok=True)
-            ref=generate(model, opt)
+            ref_pcs, ref_hist, texts, model_ids = generate(model, opt)
             
         if opt.eval_gen:
             # Evaluate generation
-            evaluate_gen(opt, ref, logger)
+            evaluate_gen(opt, ref_pcs, ref_hist, texts, model_ids, logger)
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -226,7 +243,7 @@ def parse_args():
     parser.add_argument('--sn_dataroot', default='../PVD/data/ShapeNetCore.v2.PC15k/', help="dataroot of ShapeNet")
     parser.add_argument('--t2s_dataroot', default='/media/data2/aamaduzzi/datasets/Text2Shape/', help="dataroot of ShapeNet")
     parser.add_argument('--category', default='chair')
-    parser.add_argument('--bs', type=int, default=64, help='input batch size')
+    parser.add_argument('--bs', type=int, default=128, help='input batch size')
     parser.add_argument('--workers', type=int, default=2, help='workers')
     parser.add_argument('--n_epochs', type=int, default=10000, help='number of epochs to train for')
     parser.add_argument('--nc', default=3)
