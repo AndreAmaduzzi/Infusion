@@ -11,9 +11,49 @@ from copy import copy
 import numpy as np
 import os
 import random
+from datetime import datetime
+import matplotlib.pyplot as plt
+
 
 DEFAULT_T5_NAME = 't5-11b'
-   
+
+def shuffle_ids(ids, label, random_seed=None):
+    ''' e.g. if [a, b] with label 0 makes it [b, a] with label 1.
+    '''
+    res_ids = ids.copy()   # initialization of output list
+    if random_seed is not None:
+        np.random.seed(random_seed)
+    shuffle = np.random.shuffle
+    idx = [0, 1]
+    shuffle(idx)
+    # if idx==0, no swap
+    # if idx==1, swap elements of ids
+    i=0
+    for one_idx in idx:
+        res_ids[i] = ids[one_idx]
+        i += 1 
+
+    target = idx[0]
+
+    return res_ids, target
+
+def visualize_data_sample(pointclouds, target, text, path):
+    n_clouds = len(pointclouds)
+    fig = plt.figure(figsize=(20,20))
+    plt.title(label=text + f", target: {target}", fontsize=30)
+    plt.axis('off')
+    ncols = n_clouds
+    nrows = 1
+    for idx, pc in enumerate(pointclouds):
+        colour = 'r' if target == idx else 'b'
+        pc = pc.cpu().numpy()
+        ax = fig.add_subplot(nrows, ncols, idx + 1, projection='3d')
+        ax.scatter(pc[:, 0], pc[:, 2], pc[:, 1], c=colour, s=10)
+        ax.view_init(elev=30, azim=255)
+        ax.axis('off')
+    plt.savefig(path)
+    plt.close(fig)
+
 class Text2Shape(Dataset):
     def __init__(
         self,
@@ -151,7 +191,7 @@ class Text2Shape(Dataset):
 
             # pad to length to max_length_t2s
             # add zeros at the end of text embed to reach max_length     
-            if not padding: #if the language model has not padded the embeddings, we have to do it by hand
+            if not padding: #if the language model has not padded the embeddings, we have to do it by hand, to ensure correct batches in DataLoaders
                 pad = torch.zeros(max_length - text_embed.shape[0], text_embed.shape[1])
                 text_embed = torch.cat((text_embed, pad), dim=0)
 
@@ -210,3 +250,69 @@ class Text2Shape(Dataset):
             data = self.transform(data)
         return data
 
+class Text2Shape_pairs(Text2Shape):
+    def __init__(
+        self,
+        root: Path,
+        split: str,
+        categories: str,
+        from_shapenet_v1: bool,
+        from_shapenet_v2: bool,
+        language_model: str,
+        lowercase_text: bool,
+        max_length: int,
+        padding: bool,
+        conditional_setup: bool,
+        scale_mode: str,
+        transforms: List[Callable] = []
+    ) -> None:
+    
+        super().__init__(root, split, categories, from_shapenet_v1, from_shapenet_v2, language_model, lowercase_text, 
+                        max_length, padding, conditional_setup, scale_mode, transforms) # initialize parent Text2Shape
+        
+        self.max_len = max_length
+
+
+    def __getitem__(self, idx): # build pairs of clouds
+        #data = {k:v.clone() if isinstance(v, torch.Tensor) else copy(v) for k, v in self.pointclouds[idx].items()}
+        #start = datetime.now()
+        target_mid = self.pointclouds[idx]["model_id"]
+        target_idx = idx
+        dist_mid = target_mid
+        while dist_mid == target_mid:   # we randomly sample a shape which is different from the current 
+            dist_idx = random.randint(0, len(self.pointclouds)-1)
+            dist_mid = self.pointclouds[dist_idx]["model_id"]
+
+        # found model_id different from current
+        
+        # build pair
+        idxs = [target_idx, dist_idx]
+        target = 0
+        idxs, target = shuffle_ids(idxs, target)    # shuffle ids
+        clouds = torch.stack((self.pointclouds[idxs[0]]["pointcloud"], self.pointclouds[idxs[1]]["pointcloud"]))
+        mean_text_embed = self.pointclouds[target_idx]["text_embed"]
+        #mean_text_embed = torch.mean(mean_text_embed, dim=0) # when I compute the mean, if the sentence is small => I have many zeros => mean is small
+        
+        # compute mean, ignoring zeros of padding
+        sum_embed = torch.sum(mean_text_embed, dim=1)
+
+        seq_len = torch.count_nonzero(sum_embed)
+        mean_text_embed = mean_text_embed[:seq_len,:]
+        
+        mean_text_embed = torch.mean(mean_text_embed, dim=0)
+        
+        text = self.pointclouds[target_idx]["text"]
+
+        data = {"clouds": clouds,
+                "target": target,
+                "mean_text_embed": mean_text_embed,
+                "text": text}
+        
+        #end = datetime.now()
+        
+        #print('time for loading data: ', (end-start).total_seconds(), ' s')
+
+        #if idx%20==0:
+        #    visualize_data_sample(clouds, target, text, f"sample_{datetime.now()}.png")   # RED:target, BLUE:distractor
+
+        return data
