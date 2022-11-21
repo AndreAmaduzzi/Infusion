@@ -393,12 +393,10 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
             
             sum_text_embed = torch.sum(text_embed, dim=2)
             max_seq_len = 0
-            max_seq_len_idx = 0
             for idx, embed in enumerate(sum_text_embed):
-                zero_idx = torch.argmin(abs(embed), dim=0)
-                if zero_idx.item()>max_seq_len:
-                    max_seq_len=zero_idx
-                    max_seq_len_idx = idx
+                seq_len = torch.count_nonzero(embed)
+                if seq_len>max_seq_len:
+                    max_seq_len=seq_len
             
             #print('longest len: ', max_seq_len)
             #print('longest sentence: ', text[max_seq_len_idx])
