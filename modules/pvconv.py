@@ -70,9 +70,13 @@ class SelfAttention(nn.Module):
 
         h = self.out(h)
 
-        x = h + x
+        #x = h + x
 
-        x = self.nonlin(self.norm(x))   
+        #x = self.nonlin(self.norm(x))   
+
+        h = self.nonlin(self.norm(h)) 
+
+        x = h + x
 
         return x
 
@@ -122,9 +126,13 @@ class CrossAttention(nn.Module):
 
         h = self.out(h) # equivalent to to_out of StableDiffusion
 
+        #x = h + x
+
+        #x = self.nonlin(self.norm(x))   
+
+        h = self.nonlin(self.norm(h)) 
+
         x = h + x
- 
-        x = self.nonlin(self.norm(x))
 
         #if save_matrices:
         #    torch.save(qk,  f"./exps/exp_12/matrices/qk_{epoch}_{random_n}.pt")
