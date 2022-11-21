@@ -61,10 +61,10 @@ def visualize_pointcloud_batch(path, pointclouds, pred_labels, labels, categorie
         if vis_label:
             label = categories[labels[idx].item()]
             pred = categories[pred_labels[idx]]
-            colour = 'g' if label == pred else 'r'
+            colour = 'b' if label == pred else 'r'
         elif target is None:
 
-            colour = 'g'
+            colour = 'b'
         else:
             colour = target[idx]
         pc = pc.cpu().numpy()
