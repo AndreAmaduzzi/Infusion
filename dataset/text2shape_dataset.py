@@ -24,7 +24,7 @@ def shuffle_ids(ids, label, random_seed=None):
     if random_seed is not None:
         np.random.seed(random_seed)
     shuffle = np.random.shuffle
-    idx = [0, 1]
+    idx = np.arange(0, len(ids))
     shuffle(idx)
     # if idx==0, no swap
     # if idx==1, swap elements of ids
@@ -40,7 +40,7 @@ def shuffle_ids(ids, label, random_seed=None):
 def visualize_data_sample(pointclouds, target, text, path):
     n_clouds = len(pointclouds)
     fig = plt.figure(figsize=(20,20))
-    plt.title(label=text + f", target: {target}", fontsize=30)
+    plt.title(label=text + f", target: {target}", fontsize=15)
     plt.axis('off')
     ncols = n_clouds
     nrows = 1
@@ -279,11 +279,11 @@ class Text2Shape_pairs(Text2Shape):
         target_mid = self.pointclouds[idx]["model_id"]
         target_idx = idx
         dist_mid = target_mid
+        dist_mid_2 = dist_mid
+
         while dist_mid == target_mid:   # we randomly sample a shape which is different from the current 
             dist_idx = random.randint(0, len(self.pointclouds)-1)
             dist_mid = self.pointclouds[dist_idx]["model_id"]
-
-        # found model_id different from current
         
         # build pair
         idxs = [target_idx, dist_idx]
@@ -308,10 +308,6 @@ class Text2Shape_pairs(Text2Shape):
                 "mean_text_embed": mean_text_embed,
                 "text": text}
         
-        #end = datetime.now()
-        
-        #print('time for loading data: ', (end-start).total_seconds(), ' s')
-
         #if idx%20==0:
         #    visualize_data_sample(clouds, target, text, f"sample_{datetime.now()}.png")   # RED:target, BLUE:distractor
 
