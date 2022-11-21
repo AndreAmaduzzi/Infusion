@@ -660,6 +660,7 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
                                         None,
                                         None)
 
+        lr_scheduler.step() # Exponential Scheduler has to be called at every epoch
 
     torch.distributed.destroy_process_group()
 
