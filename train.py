@@ -734,7 +734,7 @@ def parse_args():
     parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for adam. default=0.5')
     parser.add_argument('--decay', type=float, default=0, help='weight decay for EBM')
     parser.add_argument('--grad_clip', type=float, default=None, help='weight decay for EBM')
-    parser.add_argument('--lr_gamma', type=float, default=0.998, help='lr decay for EBM')
+    parser.add_argument('--lr_gamma', type=float, default=0.9998, help='lr decay for EBM')
 
     # path to checkpt of trained model and PVD model
     parser.add_argument('--model', default='', help="path to model (to continue training)")
