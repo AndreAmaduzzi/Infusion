@@ -87,7 +87,7 @@ def get_text2shape_dataset(dataroot, category):
         lowercase_text=True,
         max_length=77,
         padding=False,
-        scale_mode="global_unit")
+        scale_mode="shape_unit")
 
     val_dataset = Text2Shape(root=Path(dataroot),
         split="val",
@@ -99,7 +99,7 @@ def get_text2shape_dataset(dataroot, category):
         lowercase_text=True,
         max_length=77,
         padding=False,
-        scale_mode="global_unit"
+        scale_mode="shape_unit"
         )
 
     return tr_dataset, val_dataset
