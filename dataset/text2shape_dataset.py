@@ -179,9 +179,10 @@ class Text2Shape(Dataset):
                     text_embed_path = self.root / "text_embeds" / language_model / "std" / f"{tensor_name}"
             
             if padding:
-                text_embed = torch.load(text_embed_path).cpu()
+                text_embed = torch.load(text_embed_path, map_location='cpu')  # TODO: check if I am still loading data on GPU or not
             else:
-                text_embed = torch.load(text_embed_path)[:max_length].cpu() # manually truncate to max_length
+                text_embed = torch.load(text_embed_path, map_location='cpu')[:max_length]  # TODO: check if I am still loading data on GPU or not
+
 
             # build mask for this text embedding (i have text embeds length and max length)
             #key_padding_mask_false = torch.zeros((1+text_embed.shape[0]), dtype=torch.bool)             # False => elements will be processed
