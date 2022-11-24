@@ -4,3 +4,6 @@
 *.ipynb
 /exps/*
 test_*
+/evaluation/*
+*.sh
+*.xlsx
