@@ -13,6 +13,7 @@ import os
 import random
 from datetime import datetime
 import matplotlib.pyplot as plt
+import string
 
 
 DEFAULT_T5_NAME = 't5-11b'
@@ -109,10 +110,13 @@ class Text2Shape(Dataset):
         # get text_prompt, model_id, category
         if from_shapenet_v2:
             annotations_path = self.root / "annotations" / "from_shapenet_v2" / f"{self.split}_{self.categories}.csv"
+            train_path = self.root / "annotations" / "from_shapenet_v2" / f"train_{self.categories}.csv"
         elif from_shapenet_v1:
             annotations_path = self.root / "annotations" / "from_shapenet_v1" / f"{self.split}_{self.categories}.csv"
+            train_path = self.root / "annotations" / "from_shapenet_v2" / f"train_{self.categories}.csv"
         else:
             annotations_path = self.root / "annotations" / "from_text2shape" / f"{self.split}_{self.categories}.csv"
+            train_path = self.root / "annotations" / "from_shapenet_v2" / f"train_{self.categories}.csv"
 
 
         print('annotations: ', annotations_path)
@@ -121,8 +125,12 @@ class Text2Shape(Dataset):
         if not conditional_setup:
             df.drop_duplicates(subset=['modelId'], inplace=True)
         
-        if self.scale_mode == 'global_unit':    # compute mean and std of the current set of data
-            global_mean, global_std = self.get_ds_statistics(df, from_shapenet_v1, from_shapenet_v2) 
+        if self.scale_mode == 'global_unit':   # normalize with mean and std of training set of Text2Shape
+            # read DataFrame of training set
+            train_ds_df = pd.read_csv(train_path, quotechar='"')
+            train_ds_df.drop_duplicates(subset=['modelId'], inplace=True)
+            global_mean, global_std = self.get_ds_statistics(train_ds_df, from_shapenet_v1, from_shapenet_v2)
+            print('normalization with global mean and std')
 
         for idx, row in df.iterrows():
             # read_pcd
@@ -132,16 +140,16 @@ class Text2Shape(Dataset):
             category = row["category"]
             if from_shapenet_v1:
                 model_path = str(self.root / "shapes" / "shapenet_v1" / f"{model_id}.ply")
-                o3d_pcd = o3d.io.read_point_cloud(model_path)
-                pc = get_tensor_pcd_from_o3d(o3d_pcd)
+                pc = o3d.io.read_point_cloud(model_path)
+                pc = get_tensor_pcd_from_o3d(pc)
             elif from_shapenet_v2:
                 model_path = str(self.root / "shapes" / "shapenet_v2" / f"{model_id}.ply")
-                o3d_pcd = o3d.io.read_point_cloud(model_path)
-                pc = get_tensor_pcd_from_o3d(o3d_pcd)
+                pc = o3d.io.read_point_cloud(model_path)
+                pc = get_tensor_pcd_from_o3d(pc)
             else:
                 model_path = str(self.root / "shapes" / "text2shape" / f"{model_id}.ply")
-                o3d_pcd = o3d.io.read_point_cloud(model_path)
-                pc = get_tensor_pcd_from_o3d(o3d_pcd)
+                pc = o3d.io.read_point_cloud(model_path)
+                pc = get_tensor_pcd_from_o3d(pc)
             #scaling the pcd (from diffusion-pointcloud code)
             if self.scale_mode == "global_unit":
                 shift = global_mean
@@ -183,7 +191,7 @@ class Text2Shape(Dataset):
             else:
                 text_embed = torch.load(text_embed_path, map_location='cpu')[:max_length]  # TODO: check if I am still loading data on GPU or not
 
-
+                
             # build mask for this text embedding (i have text embeds length and max length)
             #key_padding_mask_false = torch.zeros((1+text_embed.shape[0]), dtype=torch.bool)             # False => elements will be processed
             #key_padding_mask_true = torch.ones((max_length - text_embed.shape[0]), dtype=torch.bool)    # True => elements will NOT be processed
@@ -208,8 +216,8 @@ class Text2Shape(Dataset):
                     "text_embed": text_embed,
                     'model_id': model_id,
                     'cate': category,
-                    'shift': shift,
-                    'scale': scale,
+                    'mean': shift,
+                    'std': scale,
                     #'key_pad_mask': key_padding_mask,
                 })
 
@@ -220,7 +228,11 @@ class Text2Shape(Dataset):
     def get_ds_statistics(self, dataframe, from_shapenet_v1, from_shapenet_v2): # compute mean and std dev across required dataset
         dataframe_ = dataframe.drop_duplicates(subset=['modelId'])
         pointclouds=[]
+        print('Applying global normalization...')
+        print('Computing mean and std across all dataset...')
+        count=0
         for idx, row in dataframe_.iterrows():
+            count +=1
             # read_pcd
             model_id = row["modelId"]
             if from_shapenet_v1:
@@ -236,6 +248,7 @@ class Text2Shape(Dataset):
                 o3d_pcd = o3d.io.read_point_cloud(model_path)
                 pc = get_tensor_pcd_from_o3d(o3d_pcd)
             pointclouds.append(pc)
+        print('number of processed shapes: ', count)
         pcs = torch.cat(pointclouds, dim=0)
         mean = pcs.reshape(-1, 3).mean(axis=0).reshape(1,3)
         std = pcs.reshape(-1).std(axis=0).reshape(1,1)
@@ -249,6 +262,7 @@ class Text2Shape(Dataset):
         data["idx"] = idx
         if self.transform is not None:
             data = self.transform(data)
+        
         return data
 
 class Text2Shape_pairs(Text2Shape):
@@ -284,15 +298,15 @@ class Text2Shape_pairs(Text2Shape):
         dist_mid = target_mid
 
         if not self.chinese_distractor:
-        while dist_mid == target_mid:   # we randomly sample a shape which is different from the current 
-            dist_idx = random.randint(0, len(self.pointclouds)-1)
-            dist_mid = self.pointclouds[dist_idx]["model_id"]
-        
-        # build pair
-        idxs = [target_idx, dist_idx]
-        target = 0
-        idxs, target = shuffle_ids(idxs, target)    # shuffle ids
-        clouds = torch.stack((self.pointclouds[idxs[0]]["pointcloud"], self.pointclouds[idxs[1]]["pointcloud"]))
+            while dist_mid == target_mid:   # we randomly sample a shape which is different from the current 
+                dist_idx = random.randint(0, len(self.pointclouds)-1)
+                dist_mid = self.pointclouds[dist_idx]["model_id"]
+            
+            # build pair
+            idxs = [target_idx, dist_idx]
+            target = 0
+            idxs, target = shuffle_ids(idxs, target)    # shuffle ids
+            clouds = torch.stack((self.pointclouds[idxs[0]]["pointcloud"], self.pointclouds[idxs[1]]["pointcloud"]))
 
         else:   # pick the CORRESPONDING prediction of Towards Implicit...
             #dist_idx = random.randint(0, len(self.pointclouds)-1)
