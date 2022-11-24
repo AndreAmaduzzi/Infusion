@@ -264,6 +264,7 @@ class Text2Shape_pairs(Text2Shape):
         padding: bool,
         conditional_setup: bool,
         scale_mode: str,
+        chinese_distractor: bool = False,
         transforms: List[Callable] = []
     ) -> None:
     
@@ -271,6 +272,7 @@ class Text2Shape_pairs(Text2Shape):
                         max_length, padding, conditional_setup, scale_mode, transforms) # initialize parent Text2Shape
         
         self.max_len = max_length
+        self.chinese_distractor = chinese_distractor
 
 
     def __getitem__(self, idx): # build pairs of clouds
@@ -279,8 +281,8 @@ class Text2Shape_pairs(Text2Shape):
         target_mid = self.pointclouds[idx]["model_id"]
         target_idx = idx
         dist_mid = target_mid
-        dist_mid_2 = dist_mid
 
+        if not self.chinese_distractor:
         while dist_mid == target_mid:   # we randomly sample a shape which is different from the current 
             dist_idx = random.randint(0, len(self.pointclouds)-1)
             dist_mid = self.pointclouds[dist_idx]["model_id"]
@@ -290,6 +292,42 @@ class Text2Shape_pairs(Text2Shape):
         target = 0
         idxs, target = shuffle_ids(idxs, target)    # shuffle ids
         clouds = torch.stack((self.pointclouds[idxs[0]]["pointcloud"], self.pointclouds[idxs[1]]["pointcloud"]))
+
+        else:   # pick the CORRESPONDING prediction of Towards Implicit...
+            #dist_idx = random.randint(0, len(self.pointclouds)-1)
+            #dist_mid = self.pointclouds[dist_idx]["model_id"]
+            
+            dist_mid = target_mid
+            text = self.pointclouds[target_idx]["text"]
+            text = text.translate(str.maketrans('', '', string.punctuation))
+            text = text.replace(" ", "")
+
+            # get target cloud
+            target_cloud = self.pointclouds[target_idx]["pointcloud"]
+            
+            # get distractor cloud from Chinese predictions
+            chinese_root = "/media/data2/aamaduzzi/results/towards-implicit/res64/"
+ 
+            for file in os.listdir(chinese_root):
+                if "_pc" in str(file) and dist_mid in str(file):
+                    #file_fix = file.replace(" ##", "")
+                    #file_fix = file_fix.replace(".", " . ")
+                    file_fix = file.translate(str.maketrans('', '', string.punctuation))
+                    file_fix = file_fix.replace(" ", "")
+                    if (text[:8]).lower() in str(file_fix):
+                        pcd = o3d.io.read_point_cloud(os.path.join(chinese_root, file))
+                        R = pcd.get_rotation_matrix_from_xyz((np.pi / 2, np.pi/2, 0))
+                        pcd.rotate(R, center=(0, 0, 0))
+                        dist_cloud = torch.Tensor(pcd.points)
+                        break
+                
+            clouds = [target_cloud, dist_cloud]
+            target=0
+            clouds, target = shuffle_ids(clouds, target)
+
+            clouds = torch.stack((clouds[0], clouds[1]))
+            
+    
         mean_text_embed = self.pointclouds[target_idx]["text_embed"]
         #mean_text_embed = torch.mean(mean_text_embed, dim=0) # when I compute the mean, if the sentence is small => I have many zeros => mean is small
         
