@@ -113,9 +113,9 @@ def create_pointnet2_sa_components(sa_blocks, extra_feature_channels, embed_dim=
                                               normalize=normalize, eps=eps)
 
                 if c == 0:
-                    sa_blocks.append(block(in_channels, out_channels))
+                    sa_blocks.append(block(in_channels, out_channels))              # here, we specify in and out channels for each PVConv
                 elif k ==0:
-                    sa_blocks.append(block(in_channels+embed_dim, out_channels))
+                    sa_blocks.append(block(in_channels+embed_dim, out_channels))    # here, we specify in and out channels for each PVConv
                 in_channels = out_channels
                 k += 1
             extra_feature_channels = in_channels
@@ -164,8 +164,8 @@ def create_pointnet2_fp_modules(fp_blocks, in_channels, sa_in_channels, embed_di
             out_channels, num_blocks, voxel_resolution = conv_configs
             out_channels = int(r * out_channels)
             for p in range(num_blocks):
-                #attention = (c+1) % 2 == 0 and c < len(fp_blocks) - 1 and use_att and p == 0
-                #attention = (c+1) % 2 == 0 and c <= len(fp_blocks)  and use_att and p == 0
+                #attention = (c+1) % 2 == 0 and c < len(fp_blocks) - 1 and use_att and p == 0   #   ORIGINAL
+                #attention = (c+1) % 2 == 0 and c <= len(fp_blocks)  and use_att and p == 0     #   second draft: attention in 2nd layer
                 attention = False
                 if voxel_resolution is None:
                     block = SharedMLP

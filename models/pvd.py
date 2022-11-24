@@ -98,7 +98,7 @@ class GaussianDiffusion:
         Diffuse the data (t == 0 means diffused for 1 step)
         """
         if noise is None:
-            noise = torch.randn(x_start.shape, device=x_start.device)
+            noise = torch.randn(x_start.shape, device=x_start.device)   # noise = epsilon
         assert noise.shape == x_start.shape
         return (
                 self._extract(self.sqrt_alphas_cumprod.to(x_start.device), t, x_start.shape) * x_start +
@@ -398,12 +398,12 @@ class PVD(nn.Module):
         t = torch.randint(0, self.diffusion.num_timesteps, size=(B,), device=data.device)
 
         if noises is not None:
-            noises[t!=0] = torch.randn((t!=0).sum(), *noises.shape[1:]).to(noises)
+            noises[t!=0] = torch.randn((t!=0).sum(), *noises.shape[1:]).to(noises)  # modify epsilon for elements with t!=0  
 
         losses = self.diffusion.p_losses(
             denoise_fn=self._denoise, data_start=data, t=t, noise=noises, condition=condition, text=text, epoch=epoch, save_matrices=save_matrices)
         assert losses.shape == t.shape == torch.Size([B])
-        return losses
+        return losses, t
 
     def gen_samples(self, shape, device, noise_fn=torch.randn, condition=None, constrain_fn=lambda x, t:x,
                     clip_denoised=True, max_timestep=None,

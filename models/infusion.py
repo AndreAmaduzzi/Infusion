@@ -15,12 +15,12 @@ class Infusion(nn.Module):
                 text_embed: Tensor,
                 text: list,
                 epoch: int,
-                save_matrices: bool
+                save_matrices: bool = False
                 ):
                 
-        loss = self.pvd.get_loss_iter(data=cloud, noises=noises_batch, condition=text_embed, text=text, epoch=epoch, save_matrices=save_matrices)
+        loss, t = self.pvd.get_loss_iter(data=cloud, noises=noises_batch, condition=text_embed, text=text, epoch=epoch, save_matrices=save_matrices)
 
-        return loss
+        return loss, t
     
     def get_clouds(self,
                 text_embed: Tensor,             # a batch of text embeds
