@@ -6,6 +6,10 @@ import torch
 import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
+from collections import OrderedDict
+import math
+from pycarus.metrics.chamfer_distance import chamfer
+
 
 def setup_logging(output_dir):
     log_format = logging.Formatter("%(asctime)s : %(message)s")
@@ -96,3 +100,74 @@ def nested_from_batch(input: torch.Tensor):
     # define nested tensor from list
     nested = torch.nested_tensor(list_tensor, device=torch.device('cuda'))
     return nested
+
+def prepare_pvd_weights(pvd_ckpt: dict):
+    new_pretrained_dict = OrderedDict()
+    pretrained_dict = pvd_ckpt["model_state"]
+    for k, v in pretrained_dict.items():
+        if not k.startswith('pvd'):
+            name = "pvd." + k
+        
+        name = name.replace('pvd.model.module.sa_layers.1.0.voxel_layers.7.fc.0.weight', 'pvd.model.module.sa_layers.1.0.voxel_layers.9.fc.0.weight')
+        name = name.replace('pvd.model.module.sa_layers.1.0.voxel_layers.7.fc.2.weight', 'pvd.model.module.sa_layers.1.0.voxel_layers.9.fc.2.weight')
+        name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.0.weight', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.0.weight')
+        name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.0.bias', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.0.bias')
+        name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.1.weight', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.1.weight')
+        name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.1.bias', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.1.bias')
+        name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.3.weight', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.3.weight')
+        name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.3.bias', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.3.bias')
+        name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.4.weight', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.4.weight')
+        name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.4.bias', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.4.bias')
+        name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.6.weight', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.6.weight')
+        name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.6.bias', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.6.bias')
+        name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.7.weight', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.7.weight')
+        name = name.replace('pvd.model.module.sa_layers.3.mlps.0.layers.7.bias', 'pvd.model.module.sa_layers.3.0.mlps.0.layers.7.bias')
+        name = name.replace('pvd.model.module.fp_layers.1.1.voxel_layers.7.fc.0.weight', 'pvd.model.module.fp_layers.1.1.voxel_layers.10.fc.0.weight')
+        name = name.replace('pvd.model.module.fp_layers.1.1.voxel_layers.7.fc.2.weight', 'pvd.model.module.fp_layers.1.1.voxel_layers.10.fc.2.weight')
+        name = name.replace('pvd.model.module.sa_layers.0.0.voxel_layers.7.fc.0.weight', 'pvd.model.module.sa_layers.0.0.voxel_layers.9.fc.0.weight')
+        name = name.replace('pvd.model.module.sa_layers.0.0.voxel_layers.7.fc.2.weight', 'pvd.model.module.sa_layers.0.0.voxel_layers.9.fc.2.weight')
+        name = name.replace('pvd.model.module.sa_layers.0.1.voxel_layers.7.fc.0.weight', 'pvd.model.module.sa_layers.0.1.voxel_layers.9.fc.0.weight')
+        name = name.replace('pvd.model.module.sa_layers.0.1.voxel_layers.7.fc.2.weight', 'pvd.model.module.sa_layers.0.1.voxel_layers.9.fc.2.weight')            
+        name = name.replace('pvd.model.module.sa_layers.2.0.voxel_layers.7.fc.0.weight', 'pvd.model.module.sa_layers.2.0.voxel_layers.9.fc.0.weight')
+        name = name.replace('pvd.model.module.sa_layers.2.0.voxel_layers.7.fc.2.weight', 'pvd.model.module.sa_layers.2.0.voxel_layers.9.fc.2.weight')  
+        name = name.replace('pvd.model.module.fp_layers.0.1.voxel_layers.7.fc.0.weight', 'pvd.model.module.fp_layers.0.1.voxel_layers.9.fc.0.weight')
+        name = name.replace('pvd.model.module.fp_layers.0.1.voxel_layers.7.fc.2.weight', 'pvd.model.module.fp_layers.0.1.voxel_layers.9.fc.2.weight')
+        name = name.replace('pvd.model.module.fp_layers.0.2.voxel_layers.7.fc.0.weight', 'pvd.model.module.fp_layers.0.2.voxel_layers.9.fc.0.weight')
+        name = name.replace('pvd.model.module.fp_layers.0.2.voxel_layers.7.fc.2.weight', 'pvd.model.module.fp_layers.0.2.voxel_layers.9.fc.2.weight')            
+        name = name.replace('pvd.model.module.fp_layers.0.3.voxel_layers.7.fc.0.weight', 'pvd.model.module.fp_layers.0.3.voxel_layers.9.fc.0.weight')
+        name = name.replace('pvd.model.module.fp_layers.0.3.voxel_layers.7.fc.2.weight', 'pvd.model.module.fp_layers.0.3.voxel_layers.9.fc.2.weight')
+        name = name.replace('pvd.model.module.fp_layers.1.1.voxel_layers.10.fc.0.weight', 'pvd.model.module.fp_layers.1.1.voxel_layers.9.fc.0.weight')
+        name = name.replace('pvd.model.module.fp_layers.1.1.voxel_layers.10.fc.2.weight', 'pvd.model.module.fp_layers.1.1.voxel_layers.9.fc.2.weight')            
+        name = name.replace('pvd.model.module.fp_layers.1.2.voxel_layers.7.fc.0.weight', 'pvd.model.module.fp_layers.1.2.voxel_layers.9.fc.0.weight')
+        name = name.replace('pvd.model.module.fp_layers.1.2.voxel_layers.7.fc.2.weight', 'pvd.model.module.fp_layers.1.2.voxel_layers.9.fc.2.weight')   
+        name = name.replace('pvd.model.module.fp_layers.1.3.voxel_layers.7.fc.0.weight', 'pvd.model.module.fp_layers.1.3.voxel_layers.9.fc.0.weight')
+        name = name.replace('pvd.model.module.fp_layers.1.3.voxel_layers.7.fc.2.weight', 'pvd.model.module.fp_layers.1.3.voxel_layers.9.fc.2.weight') 
+        name = name.replace('pvd.model.module.fp_layers.2.1.voxel_layers.7.fc.0.weight', 'pvd.model.module.fp_layers.2.1.voxel_layers.9.fc.0.weight')
+        name = name.replace('pvd.model.module.fp_layers.2.1.voxel_layers.7.fc.2.weight', 'pvd.model.module.fp_layers.2.1.voxel_layers.9.fc.2.weight')   
+        name = name.replace('pvd.model.module.fp_layers.2.2.voxel_layers.7.fc.0.weight', 'pvd.model.module.fp_layers.2.2.voxel_layers.9.fc.0.weight')
+        name = name.replace('pvd.model.module.fp_layers.2.2.voxel_layers.7.fc.2.weight', 'pvd.model.module.fp_layers.2.2.voxel_layers.9.fc.2.weight') 
+        name = name.replace('pvd.model.module.fp_layers.3.1.voxel_layers.7.fc.0.weight', 'pvd.model.module.fp_layers.3.1.voxel_layers.9.fc.0.weight')
+        name = name.replace('pvd.model.module.fp_layers.3.1.voxel_layers.7.fc.2.weight', 'pvd.model.module.fp_layers.3.1.voxel_layers.9.fc.2.weight')  
+        name = name.replace('pvd.model.module.fp_layers.3.2.voxel_layers.7.fc.0.weight', 'pvd.model.module.fp_layers.3.2.voxel_layers.9.fc.0.weight')
+        name = name.replace('pvd.model.module.fp_layers.3.2.voxel_layers.7.fc.2.weight', 'pvd.model.module.fp_layers.3.2.voxel_layers.9.fc.2.weight')                     
+
+        new_pretrained_dict[name] = v
+    return new_pretrained_dict
+
+def maxlen_padding(text_embeddings):
+    '''
+    CAUTION: this padding must be applied to output of Text2Shape dataset with padding=False
+    '''
+    sum_text_embed = torch.sum(text_embeddings, dim=2)
+    max_seq_len = 0
+    for idx, embed in enumerate(sum_text_embed):
+        seq_len = torch.count_nonzero(embed)
+        if seq_len>max_seq_len:
+            max_seq_len=seq_len
+    
+    #print('longest len: ', max_seq_len)
+    #print('longest sentence: ', text[max_seq_len_idx])
+    
+    text_embeddings = text_embeddings[:,:max_seq_len, :]
+
+    return text_embeddings
