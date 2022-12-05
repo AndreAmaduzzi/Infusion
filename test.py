@@ -70,7 +70,7 @@ def get_test_text2shape_dataset(dataroot, category):
         from_shapenet_v2=False,
         conditional_setup=True,
         language_model="t5-11b",
-        lowercase_text=False,
+        lowercase_text=True,
         max_length=77,
         padding=False,
         scale_mode="global_unit")
@@ -98,7 +98,6 @@ def get_test_dataloader(opt, test_dataset):
 
 
 def generate(model, opt):
-
     test_dataset = get_test_text2shape_dataset(opt.t2s_dataroot, opt.category)
     ref_hist = dict()
     texts = []
@@ -116,38 +115,40 @@ def generate(model, opt):
 
     print('Test Dataset size: ', len(test_dataset))
 
-    with torch.no_grad():
+    samples = []
+    ref = []
 
-        samples = []
-        ref = []
-
-        for i, data in tqdm(enumerate(test_dataloader), total=len(test_dataloader), desc='Generating Samples'):
-
-            x = data['pointcloud'].transpose(1,2).cuda()   # reference clouds
-            text_embed = data['text_embed'].cuda()
-            #m, s = data['mean'].float(), data['std'].float()   # in Text2Shape, we already do it when we initialize the dataset
+    for i, data in tqdm(enumerate(test_dataloader), total=len(test_dataloader), desc='Generating Samples'):
+        x = data['pointcloud'].transpose(1,2).cuda()   # reference clouds
+        text_embed = data['text_embed'].cuda()
+        mean, std = data['mean'].float(), data['std'].float()   # in Text2Shape, we already do it when we initialize the dataset
             
-            gen = model.get_clouds(text_embed, x)
-            #gen = model.pvd.gen_samples(x.shape,
-            #                           'cuda', clip_denoised=False).detach().cpu()
+        gen = model.get_clouds(text_embed, x.shape).detach().cpu()
+        gen = gen.transpose(1,2).contiguous()
+        x = x.transpose(1,2).contiguous()
 
-            gen = gen.transpose(1,2).contiguous()
-            x = x.transpose(1,2).contiguous()
+        # de-normalization
+        gen = gen * std + mean
+        x = x.detach().cpu() * std + mean
+        
+        samples.append(gen)
+        ref.append(x)
 
-            #gen = gen * s + m
-            #x = x * s + m
-            samples.append(gen)
-            ref.append(x)
+        # visualize first batch of clouds
+        if i==0:
+            visualize_pointcloud_batch(os.path.join(str(Path(opt.eval_path).parent), 'gen.png'), gen[:10], None,
+                                       None, None)
 
-            #visualize_pointcloud_batch(os.path.join(str(Path(opt.eval_path).parent), 'x.png'), gen[:64], None,
-            #                           None, None)
+            visualize_pointcloud_batch(os.path.join(str(Path(opt.eval_path).parent), 'ref.png'), x[:10], None,
+                                       None, None)
 
-        samples = torch.cat(samples, dim=0)
-        ref = torch.cat(ref, dim=0)
-        samples = normalize_clouds_for_validation(samples, mode='shape_bbox', logger=logger)
-        ref = normalize_clouds_for_validation(ref, mode='shape_bbox', logger=logger)
+    samples = torch.cat(samples, dim=0)
+    ref = torch.cat(ref, dim=0)
+        
+    #samples = normalize_clouds_for_validation(samples, mode='shape_bbox', logger=logger)
+    #ref = normalize_clouds_for_validation(ref, mode='shape_bbox', logger=logger)
 
-        torch.save(samples, opt.eval_path)
+    torch.save(samples, opt.eval_path)
 
     return ref, ref_hist, texts, model_ids
 
@@ -158,11 +159,12 @@ def evaluate_gen(opt, ref_pcs, ref_hist, texts, model_ids, logger):
         test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=opt.batch_size,
                                                       shuffle=False, num_workers=int(opt.workers), drop_last=False)
         ref = []
-        for data in tqdm(test_dataloader, total=len(test_dataloader), desc='Generating Samples'):
+        for data in tqdm(test_dataloader, desc='Generating Samples'):   # tqdm(dataloader) will automatically iterate over the WHOLE dataloader (=dataset)
             x = data['pointcloud']  # reference clouds
-            #m, s = data['mean'].float(), data['std'].float()
-
-            #ref.append(x*s + m)
+            m, s = data['mean'].float(), data['std'].float()
+    
+            # de-normalize clouds
+            ref.append(x.detach().cpu() * s + m)
 
         ref_pcs = torch.cat(ref, dim=0).contiguous()
 
@@ -179,11 +181,13 @@ def evaluate_gen(opt, ref_pcs, ref_hist, texts, model_ids, logger):
     # Compute metrics
     print('samples: ', sample_pcs.shape)
     print('ref: ', ref_pcs.shape)
-    chamfer_dist = chamfer(ref_pcs, sample_pcs)
-    chamfer_dist = chamfer_dist[0]
-    print('chamer: ', chamfer_dist.shape)
-    np.save(os.path.join(Path(opt.eval_path).parent, 'chamfer.npy'), chamfer_dist.cpu().numpy())
+    #print('computing chamfer distance between all clouds...')
+    #chamfer_dist = chamfer(ref_pcs, sample_pcs)
+    #chamfer_dist = chamfer_dist[0]
+    #print('chamfer: ', chamfer_dist.shape)
+    #np.save(os.path.join(Path(opt.eval_path).parent, 'chamfer.npy'), chamfer_dist.cpu().numpy())
 
+    logger.info('Computing evaluation metrics')
     results = evaluation_metrics.compute_all_metrics(sample_pcs.cuda(), ref_pcs.cuda(), opt.bs, model_ids=model_ids, texts=texts, save_dir=Path(opt.eval_path).parent, ref_hist=ref_hist)
     results = {k: (v.cpu().detach().item()
                    if not isinstance(v, float) else v) for k, v in results.items()}
@@ -201,25 +205,37 @@ def main():
         opt.beta_start = 1e-5
         opt.beta_end = 0.008
         opt.schedule_type = 'warm0.1'
-
+    
     model = Infusion(opt)
-
-    model.cuda()
+    model = model.cuda()
 
     def _transform_(m):
-        return nn.parallel.DataParallel(m)
-
-    model = model.cuda()
-    model.multi_gpu_wrapper(_transform_)
+        return nn.parallel.DataParallel(m, device_ids=[0,1])
 
     model.pvd.eval()
-
 
     with torch.no_grad():
         print('Loading model ', opt.model)
         resumed_param = torch.load(opt.model)
-        model.load_state_dict(resumed_param['model_state'])
-        epoch= resumed_param['epoch']
+        weights_dict = resumed_param['model_state']
+
+        if opt.distribution_type == 'single':
+            model.multi_gpu_wrapper(_transform_)
+            model.load_state_dict(weights_dict)
+            epoch = resumed_param['epoch']  
+        elif opt.distribution_type is None:
+            # remove .module. from the weights dictionary
+            new_weights_dict = {}
+            for k, v in weights_dict.items():
+                name = k
+                name = name.replace('.module.', '.')    
+                new_weights_dict[name] = v   
+            model.load_state_dict(new_weights_dict)
+            epoch = resumed_param['epoch']           
+        elif opt.distribution_type == 'multi':
+            raise Exception('multi processing not allowed during test')
+
+
         outf_dir = os.path.join(opt.eval_dir, f'epoch_{epoch}')
         print('outf_dir: ', outf_dir)
         if not os.path.exists(outf_dir):
@@ -239,23 +255,21 @@ def main():
 def parse_args():
     parser = argparse.ArgumentParser()
     # General arguments
-    parser.add_argument('--train_ds', default='text2shape', choices=['shapenet', 'text2shape'], help='dataset to use for training')
     parser.add_argument('--sn_dataroot', default='../PVD/data/ShapeNetCore.v2.PC15k/', help="dataroot of ShapeNet")
     parser.add_argument('--t2s_dataroot', default='/media/data2/aamaduzzi/datasets/Text2Shape/', help="dataroot of ShapeNet")
-    parser.add_argument('--category', default='chair')
-    parser.add_argument('--bs', type=int, default=128, help='input batch size')
-    parser.add_argument('--workers', type=int, default=2, help='workers')
-    parser.add_argument('--n_epochs', type=int, default=10000, help='number of epochs to train for')
+    parser.add_argument('--category', default='all')
+    parser.add_argument('--bs', type=int, default=150, help='input batch size')
+    parser.add_argument('--workers', type=int, default=0, help='workers')
     parser.add_argument('--nc', default=3)
     parser.add_argument('--npoints', default=2048)
-    parser.add_argument('--eval_dir', default='./evaluation/finetune_PVD_chair', help='directory for evaluation results')
+    parser.add_argument('--eval_dir', default='./evaluation/500_steps', help='directory for evaluation results')
 
     # PVD
     # noise schedule
     parser.add_argument('--beta_start', default=0.0001)
     parser.add_argument('--beta_end', default=0.02)
     parser.add_argument('--schedule_type', default='linear')
-    parser.add_argument('--time_num', default=1000)
+    parser.add_argument('--time_num', default=500)
 
     #loss params
     parser.add_argument('--attention', default=True)
@@ -265,17 +279,9 @@ def parse_args():
     parser.add_argument('--model_mean_type', default='eps')
     parser.add_argument('--model_var_type', default='fixedsmall')
 
-    # learning rate params
-    parser.add_argument('--lr', type=float, default=2e-4, help='learning rate for E, default=0.0002')
-    parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for adam. default=0.5')
-    parser.add_argument('--decay', type=float, default=0, help='weight decay for EBM')
-    parser.add_argument('--grad_clip', type=float, default=None, help='weight decay for EBM')
-    parser.add_argument('--lr_gamma', type=float, default=0.998, help='lr decay for EBM')
 
     # path to checkpt of trained model and PVD model
-    parser.add_argument('--model', default='', help="path to model (to continue training)")
-    parser.add_argument('--pvd_model', default='', help="path to PVD model (to freeze PVD")
-
+    parser.add_argument('--model', default='./exps/500_steps/epoch_49.pth', help="path to model (to continue training)")
 
     # distributed training
     parser.add_argument('--world_size', default=1, type=int,
