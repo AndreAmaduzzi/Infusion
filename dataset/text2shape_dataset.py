@@ -268,6 +268,65 @@ class Text2Shape(Dataset):
         
         return data
 
+
+class Text2Shape_subset_mid(Text2Shape):
+    def __init__(
+        self,
+        root: Path,
+        split: str,
+        categories: str,
+        from_shapenet_v1: bool,
+        from_shapenet_v2: bool,
+        language_model: str,
+        lowercase_text: bool,
+        max_length: int,
+        padding: bool,
+        conditional_setup: bool,
+        scale_mode: str,
+        chinese_distractor: bool = False,
+        transforms: List[Callable] = []
+    ) -> None:
+    
+        '''
+        Class implementing a subset of Text2Shape dataset, where:
+        - we provide a single entry for each model_id
+        - the entry (cloud, text embedding, text...) is randomly sampled from the entries of that specific model_id
+        - dataset size of training dataset with tables and chairs: 12054 entries
+        
+        '''
+
+        super().__init__(root, split, categories, from_shapenet_v1, from_shapenet_v2, language_model, lowercase_text, 
+                        max_length, padding, conditional_setup=True, scale_mode=scale_mode, transforms=transforms) # initialize parent Text2Shape
+
+        # get unique model_ids
+        m_ids = [shape["model_id"] for shape in self.pointclouds]
+        self.m_ids = list(set(m_ids))
+
+    
+    def __getitem__(self, idx): 
+        m_id = self.m_ids[idx]
+        # find number of occurences of the current shape
+        count=0
+        for cloud in self.pointclouds:
+            if cloud["model_id"]==m_id:
+                count+=1 
+
+        # pick a random index
+        rand_idx = random.randrange(0, count)
+
+        # return the corresponding entry of the dataset
+        count=0
+        for cloud in self.pointclouds:
+            if cloud["model_id"]==m_id:
+                if count==rand_idx:
+                    return cloud
+                else:
+                    count+=1 
+
+    def __len__(self):
+        return len(self.m_ids)
+    
+
 class Text2Shape_pairs(Text2Shape):
     def __init__(
         self,
