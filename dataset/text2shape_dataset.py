@@ -113,10 +113,10 @@ class Text2Shape(Dataset):
             train_path = self.root / "annotations" / "from_shapenet_v2" / f"train_{self.categories}.csv"
         elif from_shapenet_v1:
             annotations_path = self.root / "annotations" / "from_shapenet_v1" / f"{self.split}_{self.categories}.csv"
-            train_path = self.root / "annotations" / "from_shapenet_v2" / f"train_{self.categories}.csv"
+            train_path = self.root / "annotations" / "from_shapenet_v1" / f"train_{self.categories}.csv"
         else:
             annotations_path = self.root / "annotations" / "from_text2shape" / f"{self.split}_{self.categories}.csv"
-            train_path = self.root / "annotations" / "from_shapenet_v2" / f"train_{self.categories}.csv"
+            train_path = self.root / "annotations" / "from_tetx2shape" / f"train_{self.categories}.csv"
 
 
         print('annotations: ', annotations_path)
@@ -130,7 +130,10 @@ class Text2Shape(Dataset):
             train_ds_df = pd.read_csv(train_path, quotechar='"')
             train_ds_df.drop_duplicates(subset=['modelId'], inplace=True)
             global_mean, global_std = self.get_ds_statistics(train_ds_df, from_shapenet_v1, from_shapenet_v2)
-            print('normalization with global mean and std')
+            print('normalization with mean and std of training set')
+            print('global mean: ', global_mean)
+            print('global std: ', global_std)
+
 
         for idx, row in df.iterrows():
             # read_pcd
