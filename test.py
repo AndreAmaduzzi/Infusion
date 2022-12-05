@@ -123,7 +123,7 @@ def generate(model, opt):
         text_embed = data['text_embed'].cuda()
         mean, std = data['mean'].float(), data['std'].float()   # in Text2Shape, we already do it when we initialize the dataset
             
-        gen = model.get_clouds(text_embed, x.shape).detach().cpu()
+        gen = model.get_clouds(text_embed, x).detach().cpu()
         gen = gen.transpose(1,2).contiguous()
         x = x.transpose(1,2).contiguous()
 
@@ -262,7 +262,7 @@ def parse_args():
     parser.add_argument('--workers', type=int, default=0, help='workers')
     parser.add_argument('--nc', default=3)
     parser.add_argument('--npoints', default=2048)
-    parser.add_argument('--eval_dir', default='./evaluation/500_steps', help='directory for evaluation results')
+    parser.add_argument('--eval_dir', default='./evaluation/small_500_steps', help='directory for evaluation results')
 
     # PVD
     # noise schedule
@@ -281,7 +281,7 @@ def parse_args():
 
 
     # path to checkpt of trained model and PVD model
-    parser.add_argument('--model', default='./exps/500_steps/epoch_49.pth', help="path to model (to continue training)")
+    parser.add_argument('--model', default='./exps/smaller_pvd_500/epoch_99.pth', help="path to model (to continue training)")
 
     # distributed training
     parser.add_argument('--world_size', default=1, type=int,
@@ -290,7 +290,7 @@ def parse_args():
                         help='url used to set up distributed training')
     parser.add_argument('--dist_backend', default='nccl', type=str,
                         help='distributed backend')
-    parser.add_argument('--distribution_type', default='single', choices=['multi', 'single', None],
+    parser.add_argument('--distribution_type', default=None, choices=['multi', 'single', None],
                         help='Use multi-processing distributed training to launch '
                              'N processes per node, which has N GPUs. This is the '
                              'fastest way to use PyTorch for either single node or '
