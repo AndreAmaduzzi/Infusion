@@ -207,7 +207,26 @@ def main():
         opt.schedule_type = 'warm0.1'
     
     model = Infusion(opt)
-    model = model.cuda()
+
+    if opt.distribution_type == 'multi':  # Multiple processes, single GPU per process
+        def _transform_(m):
+            return nn.parallel.DistributedDataParallel(
+                m, device_ids=[opt.gpu], output_device=opt.gpu)
+
+        torch.cuda.set_device(opt.gpu)
+        model.cuda(opt.gpu)
+        model.multi_gpu_wrapper(_transform_)
+
+    elif opt.distribution_type == 'single':
+        def _transform_(m):
+            return nn.parallel.DataParallel(m, device_ids=[0,1])
+        model = model.cuda()
+        model.multi_gpu_wrapper(_transform_)
+    elif opt.gpu is not None:
+        torch.cuda.set_device(opt.gpu)
+        model = model.cuda(opt.gpu)
+    else:
+        raise ValueError('distribution_type = multi | single | None')
 
     def _transform_(m):
         return nn.parallel.DataParallel(m, device_ids=[0,1])
@@ -262,7 +281,7 @@ def parse_args():
     parser.add_argument('--workers', type=int, default=0, help='workers')
     parser.add_argument('--nc', default=3)
     parser.add_argument('--npoints', default=2048)
-    parser.add_argument('--eval_dir', default='./evaluation/small_500_steps', help='directory for evaluation results')
+    parser.add_argument('--eval_dir', default='./evaluation/small_500_steps_fp16', help='directory for evaluation results')
 
     # PVD
     # noise schedule
@@ -281,7 +300,7 @@ def parse_args():
 
 
     # path to checkpt of trained model and PVD model
-    parser.add_argument('--model', default='./exps/smaller_pvd_500/epoch_99.pth', help="path to model (to continue training)")
+    parser.add_argument('--model', default='./exps/smaller_pvd_500_fp16/epoch_99.pth', help="path to model (to continue training)")
 
     # distributed training
     parser.add_argument('--world_size', default=1, type=int,
@@ -297,7 +316,7 @@ def parse_args():
                              'multi node data parallel training')
     parser.add_argument('--rank', default=0, type=int,
                         help='node rank for distributed training')
-    parser.add_argument('--gpu', default=None, type=int,
+    parser.add_argument('--gpu', default=1, type=int,
                         help='GPU id to use. None means using all available GPUs.')
 
     # evaluation params
