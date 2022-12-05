@@ -72,6 +72,7 @@ class GaussianDiffusion:
         self.posterior_log_variance_clipped = torch.log(torch.max(posterior_variance, 1e-20 * torch.ones_like(posterior_variance)))
         self.posterior_mean_coef1 = betas * torch.sqrt(alphas_cumprod_prev) / (1. - alphas_cumprod)
         self.posterior_mean_coef2 = (1. - alphas_cumprod_prev) * torch.sqrt(alphas) / (1. - alphas_cumprod)
+        self.eps_scale = self.betas / self.sqrt_one_minus_alphas_cumprod
 
     @staticmethod
     def _extract(a, t, x_shape):
@@ -217,8 +218,6 @@ class GaussianDiffusion:
 
         assert isinstance(shape, (tuple, list))
         img_t = noise_fn(size=shape, dtype=torch.float, device=device)
-        #n = random.randrange(0,10000)
-        #torch.save(img_t, f'noise_{n}')
         for t in reversed(range(0, final_time if not keep_running else len(self.betas))):
             img_t = constrain_fn(img_t, t)
             t_ = torch.empty(shape[0], dtype=torch.int64, device=device).fill_(t)
@@ -249,7 +248,7 @@ class GaussianDiffusion:
             t_ = torch.empty(shape[0], dtype=torch.int64, device=device).fill_(t)
             img_t = self.p_sample(denoise_fn=denoise_fn, data=img_t, t=t_, noise_fn=noise_fn,
                                   clip_denoised=clip_denoised, condition=condition,
-                                  return_pred_xstart=False)
+                                  return_pred_xstart=False).detach()
             if t % freq == 0 or t == total_steps-1:
                 imgs.append(img_t)
 
@@ -291,6 +290,13 @@ class GaussianDiffusion:
             losses = self._vb_terms_bpd(
                 denoise_fn=denoise_fn, data_start=data_start, data_t=data_t, t=t, clip_denoised=False,
                 return_pred_xstart=False)
+        elif self.loss_type == 'scaled_mse':
+            # predict x_t instead of x_start. It becomes a scaled version of mse loss
+            assert data_t.shape == data_start.shape
+            assert eps_recon.shape == torch.Size([B, D, N])
+            assert eps_recon.shape == data_start.shape
+            eps_scale = self._extract(self.eps_scale.to(data_start.device), t, data_start.shape)
+            losses = ((eps_scale * noise - eps_recon)**2).mean(dim=list(range(1, len(data_start.shape))))
         else:
             raise NotImplementedError(self.loss_type)
 
