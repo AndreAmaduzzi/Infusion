@@ -273,8 +273,8 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
             start_epoch = 0
         start_epoch = 0
 
-    def new_x_chain(x, num_chain):
-        return torch.randn(num_chain, *x.shape[1:], device=x.device)
+
+    scaler = torch.cuda.amp.GradScaler()    # scaler for mixed precision training
 
     for epoch in range(start_epoch, opt.n_epochs):
 
@@ -404,26 +404,27 @@ def train(gpu, opt, output_dir, train_dset, val_dset, noises_init):
             text_embed = text_embed[:,:max_seq_len, :]
 
             model.pvd.train()
-            if i==0 and (epoch + 1) % opt.vizIter == 0 and should_diag:    # first batch and epoch is multiple of vizIter
-                save_matrices=True
-            else:
-                save_matrices=False
             
-            loss = model.get_loss(x, noises_batch, text_embed, text, epoch, save_matrices=save_matrices).mean()
+            with torch.autocast(device_type='cuda', dtype=torch.float16):
+                loss, t = model.get_loss(x, noises_batch, text_embed, text, epoch)
+                loss = loss.mean()
+                assert loss.dtype is torch.float32
             
-            optimizer.zero_grad()   # this command sets to zero the gradient of the params to optimize
-            loss.backward()
+            optimizer.zero_grad()    
+            scaler.scale(loss).backward()   # mixed precision training
+            #loss.backward()
+
             netpNorm, netgradNorm = getGradNorm(model)
 
             if opt.grad_clip is not None:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), opt.grad_clip, error_if_nonfinite=True)
 
-            optimizer.step()
-            lr_scheduler.step()
+            scaler.step(optimizer)          # mixed precision training
+            #optimizer.step()
 
-            writer.add_scalar('train/loss', loss, i)
-            writer.add_scalar('train/lr', optimizer.param_groups[0]['lr'], i)
-            writer.add_scalar('train/grad', netgradNorm, i)
+            # comment this line below if you want to keep a CONSTANT LEARNING RATE
+            #lr_scheduler.step() # TODO: change position of this call => Exponential Scheduler has to be called at every epoch. 
+            scaler.update()
             writer.flush()
             '''
             for idx, p in enumerate(model.parameters()):

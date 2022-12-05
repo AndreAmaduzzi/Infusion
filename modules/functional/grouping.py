@@ -1,4 +1,5 @@
 from torch.autograd import Function
+from torch import float32
 
 from modules.functional.backend import _backend
 
@@ -19,7 +20,12 @@ class Grouping(Function):
         indices = indices.contiguous()
         ctx.save_for_backward(indices)
         ctx.num_points = features.size(-1)
-        return _backend.grouping_forward(features, indices)
+        if features.dtype is not float32:
+            features_fp32 = features.to(dtype=float32)  
+            return _backend.grouping_forward(features_fp32, indices)
+        else:
+            return _backend.grouping_forward(features, indices)
+        
 
     @staticmethod
     def backward(ctx, grad_output):
