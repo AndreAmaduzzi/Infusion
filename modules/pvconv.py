@@ -109,10 +109,10 @@ class CrossAttention(nn.Module):
         #            f.write(text_pt + "\n")
 
 
-        q = self.q(x)                               #Bx64x16x16x16
-        q = q.reshape(B,C,-1)                       #Bx64x4096
-        k = self.k(context.permute(0,2,1))          #Bx77x1024 => Bx1024x77 => Bx64x77
-        v = self.v(context.permute(0,2,1))          #Bx77x1024 => Bx1024x77 => Bx64x77
+        q = self.q(x)                               #Bx32x32x32x32
+        q = q.reshape(B,C,-1)                       #Bx32x32768
+        k = self.k(context.permute(0,2,1))          #Bx40x1024 => Bx1024x77 => Bx32x40
+        v = self.v(context.permute(0,2,1))          #Bx40x1024 => Bx1024x40 => Bx32x40
 
         qk = torch.matmul(q.permute(0,2,1), k)* (int(C) ** (-0.5))
 
