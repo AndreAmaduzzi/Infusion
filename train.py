@@ -306,8 +306,6 @@ def train(gpu, opt, train_dset, val_dset, noises_init):
             scaler.step(optimizer)          # mixed precision training
             #optimizer.step()
 
-            # comment this line below if you want to keep a CONSTANT LEARNING RATE
-            #lr_scheduler.step() # TODO: change position of this call => Exponential Scheduler has to be called at every epoch. 
             scaler.update()
             
             step_loss = datetime.now()
