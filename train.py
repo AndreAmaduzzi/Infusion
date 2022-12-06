@@ -287,36 +287,6 @@ def train(gpu, opt, train_dset, val_dset, noises_init):
             
             text_embed = maxlen_padding(text_embed) # truncate or pad all text embeds to longest sequence in batch
 
-            if (epoch+1) % opt.valEpoch == 0 and should_diag:
-                logger.info('Running validation...')
-                # build reference histogram for validation set with first val_size elements (for example, 1000)
-                ref_hist = dict()  
-                for i in range(0, opt.val_size):
-                    if val_dset[i]["model_id"] in ref_hist.keys():
-                        ref_hist[val_dset[i]["model_id"]] += 1
-                    else:
-                        ref_hist[val_dset[i]["model_id"]] = 1
-
-                model.pvd.eval()
-                
-                val_folder = os.path.join(opt.output_dir, 'validation')
-                val_results, mean_chamfer = run_validation(model, ref_hist, val_folder, epoch, opt.val_size, opt.bs, val_dataloader)
-
-                # Display metrics on Tensorboard
-                # CD related metrics
-                writer.add_scalar('val/Coverage_CD', val_results['lgan_cov-CD'], n_iters)
-                writer.add_scalar('val/MMD_CD', val_results['lgan_mmd-CD'], n_iters)
-                writer.add_scalar('val/Mean_Chamfer', mean_chamfer, n_iters)
-                #writer.add_scalar('val/1NN_CD', results['1-NN-CD-acc'], n_iters)
-                # JSD
-                writer.add_scalar('val/JSD', val_results['jsd'], n_iters)
-                writer.flush()
-
-                logger.info('[Val] Coverage  | CD %.6f | EMD n/a' % (val_results['lgan_cov-CD']))
-                logger.info('[Val] MinMatDis | CD %.6f | EMD n/a' % (val_results['lgan_mmd-CD']))
-                logger.info('[Val] JsnShnDis | %.6f ' % (val_results['jsd']))
-                logger.info('[Val] Mean Chamfer Distance between Ref and Gen: %.6f ' % (mean_chamfer))
-
             model.pvd.train()
         
             with torch.autocast(device_type='cuda', dtype=torch.float16):
@@ -434,8 +404,38 @@ def train(gpu, opt, train_dset, val_dset, noises_init):
 
                 visualize_shape_grids(model, train_batch=data, val_dl=val_dataloader, output_dir=viz_folder, epoch=epoch, logger=logger)
 
+        if (epoch+1) % opt.valEpoch == 0 and should_diag:
+                logger.info('Running validation...')
+                # build reference histogram for validation set with first val_size elements (for example, 1000)
+                ref_hist = dict()  
+                for i in range(0, opt.val_size):
+                    if val_dset[i]["model_id"] in ref_hist.keys():
+                        ref_hist[val_dset[i]["model_id"]] += 1
+                    else:
+                        ref_hist[val_dset[i]["model_id"]] = 1
 
+                model.pvd.eval()
 
+                val_folder = os.path.join(opt.output_dir, 'validation')
+                val_results, mean_chamfer = run_validation(model, ref_hist, val_folder, epoch, opt.val_size, opt.bs, val_dataloader)
+
+                # Display metrics on Tensorboard
+                # CD related metrics
+                writer.add_scalar('val/Coverage_CD', val_results['lgan_cov-CD'], n_iters)
+                writer.add_scalar('val/MMD_CD', val_results['lgan_mmd-CD'], n_iters)
+                writer.add_scalar('val/Mean_Chamfer', mean_chamfer, n_iters)
+                #writer.add_scalar('val/1NN_CD', results['1-NN-CD-acc'], n_iters)
+                # JSD
+                writer.add_scalar('val/JSD', val_results['jsd'], n_iters)
+                writer.flush()
+
+                logger.info('[Val] Coverage  | CD %.6f | EMD n/a' % (val_results['lgan_cov-CD']))
+                logger.info('[Val] MinMatDis | CD %.6f | EMD n/a' % (val_results['lgan_mmd-CD']))
+                logger.info('[Val] JsnShnDis | %.6f ' % (val_results['jsd']))
+                logger.info('[Val] Mean Chamfer Distance between Ref and Gen: %.6f ' % (mean_chamfer))
+
+        # comment this line below if you want to keep a CONSTANT LEARNING RATE
+        #lr_scheduler.step() # TODO: change position of this call => Exponential Scheduler has to be called at every epoch. 
 
     torch.distributed.destroy_process_group()
 
