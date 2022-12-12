@@ -370,10 +370,8 @@ class Text2Shape_pairs(Text2Shape):
             idxs, target = shuffle_ids(idxs, target)    # shuffle ids
             clouds = torch.stack((self.pointclouds[idxs[0]]["pointcloud"], self.pointclouds[idxs[1]]["pointcloud"]))
 
-        else:   # pick the CORRESPONDING prediction of Towards Implicit...
-            #dist_idx = random.randint(0, len(self.pointclouds)-1)
-            #dist_mid = self.pointclouds[dist_idx]["model_id"]
-            
+        else:   
+            # we pick the corresponding prediction by "Towards Implicit"
             dist_mid = target_mid
             text = self.pointclouds[target_idx]["text"]
             text = text.translate(str.maketrans('', '', string.punctuation))
@@ -381,6 +379,10 @@ class Text2Shape_pairs(Text2Shape):
 
             # get target cloud
             target_cloud = self.pointclouds[target_idx]["pointcloud"]
+
+            # uncomment the following 2 lines to use a random cloud from T2S as target
+            #random_idx = random.randrange(0, len(self.pointclouds))
+            #target_cloud = self.pointclouds[random_idx]["pointcloud"]
             
             # get distractor cloud from Chinese predictions
             chinese_root = "/media/data2/aamaduzzi/results/towards-implicit/res64/"
@@ -396,6 +398,11 @@ class Text2Shape_pairs(Text2Shape):
                         R = pcd.get_rotation_matrix_from_xyz((np.pi / 2, np.pi/2, 0))
                         pcd.rotate(R, center=(0, 0, 0))
                         dist_cloud = torch.Tensor(pcd.points)
+                        pc_max, _ = dist_cloud.max(dim=0, keepdim=True) # (1, 3)
+                        pc_min, _ = dist_cloud.min(dim=0, keepdim=True) # (1, 3)
+                        shift = ((pc_min + pc_max) / 2).view(1, 3)
+                        scale = torch.linalg.norm(pc_max - pc_min).reshape(1, 1)
+                        dist_cloud = (dist_cloud - shift) / scale
                         break
                 
             clouds = [target_cloud, dist_cloud]
@@ -403,8 +410,7 @@ class Text2Shape_pairs(Text2Shape):
             clouds, target = shuffle_ids(clouds, target)
 
             clouds = torch.stack((clouds[0], clouds[1]))
-            
-    
+
         mean_text_embed = self.pointclouds[target_idx]["text_embed"]
         #mean_text_embed = torch.mean(mean_text_embed, dim=0) # when I compute the mean, if the sentence is small => I have many zeros => mean is small
         
@@ -423,7 +429,7 @@ class Text2Shape_pairs(Text2Shape):
                 "mean_text_embed": mean_text_embed,
                 "text": text}
         
-        #if idx%20==0:
-        #    visualize_data_sample(clouds, target, text, f"sample_{datetime.now()}.png")   # RED:target, BLUE:distractor
+        if idx%2000==0:
+            visualize_data_sample(clouds, target, text, f"sample_{datetime.now()}.png")   # RED:target, BLUE:distractor
 
         return data
