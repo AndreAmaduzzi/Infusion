@@ -292,6 +292,7 @@ class GaussianDiffusion:
                 return_pred_xstart=False)
         elif self.loss_type == 'scaled_mse':
             # predict x_t instead of x_start. It becomes a scaled version of mse loss
+            eps_recon = denoise_fn(data_t, t, condition, text, epoch, save_matrices)
             assert data_t.shape == data_start.shape
             assert eps_recon.shape == torch.Size([B, D, N])
             assert eps_recon.shape == data_start.shape
