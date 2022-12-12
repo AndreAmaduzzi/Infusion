@@ -196,17 +196,19 @@ def visualize_shape_grids(model,
         x_train_denorm = x_train.detach().cpu() * std + mean
 
         visualize_pointcloud_batch('%s/epoch_%03d_samples_eval_train.png' % (output_dir, epoch),
-                            gen_eval_denorm, None, None,
+                            gen_eval_denorm[:32], None, None,
                             None)
 
         visualize_pointcloud_batch('%s/epoch_%03d_samples_eval_all_train.png' % (output_dir, epoch),
-                            x_gen_all, None,
+                            x_gen_all[:32], None,
                             None,
                             None)
 
-        visualize_pointcloud_batch('%s/epoch_%03d_x_train.png' % (output_dir, epoch), x_train_denorm, None,
+        visualize_pointcloud_batch('%s/epoch_%03d_x_train.png' % (output_dir, epoch), x_train_denorm[:32], None,
                             None,
                             None)
+
+        text_embed_train = text_embed_train.detach().cpu()
 
     with torch.no_grad():
         val_batch = next(iter(val_dl))  # we pick always the first batch of the validation set
@@ -239,14 +241,16 @@ def visualize_shape_grids(model,
 
 
         visualize_pointcloud_batch('%s/epoch_%03d_samples_eval_valid.png' % (output_dir, epoch),
-                            gen_eval_denorm, None, None,
+                            gen_eval_denorm[:32], None, None,
                             None)
 
         visualize_pointcloud_batch('%s/epoch_%03d_samples_eval_all_valid.png' % (output_dir, epoch),
-                            x_gen_all, None,
+                            x_gen_all[:32], None,
                             None,
                             None)
 
-        visualize_pointcloud_batch('%s/epoch_%03d_x_valid.png' % (output_dir, epoch), x_val_denorm, None,
+        visualize_pointcloud_batch('%s/epoch_%03d_x_valid.png' % (output_dir, epoch), x_val_denorm[:32], None,
                             None,
                             None)
+        
+        text_embed_val = text_embed_val.detach().cpu()
