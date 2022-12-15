@@ -38,10 +38,10 @@ def shuffle_ids(ids, label, random_seed=None):
 
     return res_ids, target
 
-def visualize_data_sample(pointclouds, target, text, path):
+def visualize_data_sample(pointclouds, target, text, path, idx):
     n_clouds = len(pointclouds)
     fig = plt.figure(figsize=(20,20))
-    plt.title(label=text + f", target: {target}", fontsize=15)
+    plt.title(label=text + f", target: {target}, idx={idx}", fontsize=15)
     plt.axis('off')
     ncols = n_clouds
     nrows = 1
@@ -341,7 +341,8 @@ class Text2Shape_pairs(Text2Shape):
         padding: bool,
         conditional_setup: bool,
         scale_mode: str,
-        chinese_distractor: bool = False,
+        method: str,
+        path_results: str,
         transforms: List[Callable] = []
     ) -> None:
     
@@ -349,7 +350,8 @@ class Text2Shape_pairs(Text2Shape):
                         max_length, padding, conditional_setup, scale_mode, transforms) # initialize parent Text2Shape
         
         self.max_len = max_length
-        self.chinese_distractor = chinese_distractor
+        self.method = method
+        self.path_results = path_results
 
 
     def __getitem__(self, idx): # build pairs of clouds
@@ -359,7 +361,7 @@ class Text2Shape_pairs(Text2Shape):
         target_idx = idx
         dist_mid = target_mid
 
-        if not self.chinese_distractor:
+        if self.method is None:     # build pairs of GT T2S cloud with random T2S cloud
             while dist_mid == target_mid:   # we randomly sample a shape which is different from the current 
                 dist_idx = random.randint(0, len(self.pointclouds)-1)
                 dist_mid = self.pointclouds[dist_idx]["model_id"]
@@ -370,46 +372,112 @@ class Text2Shape_pairs(Text2Shape):
             idxs, target = shuffle_ids(idxs, target)    # shuffle ids
             clouds = torch.stack((self.pointclouds[idxs[0]]["pointcloud"], self.pointclouds[idxs[1]]["pointcloud"]))
 
-        else:   
-            # we pick the corresponding prediction by "Towards Implicit"
-            dist_mid = target_mid
-            text = self.pointclouds[target_idx]["text"]
-            text = text.translate(str.maketrans('', '', string.punctuation))
-            text = text.replace(" ", "")
+        elif self.method == "towards_impl":   
+                # we pick the corresponding prediction by "Towards Implicit"
+                dist_mid = target_mid
+                text = self.pointclouds[target_idx]["text"]
+                text = text.translate(str.maketrans('', '', string.punctuation))
+                text = text.replace(" ", "")
 
-            # get target cloud
-            target_cloud = self.pointclouds[target_idx]["pointcloud"]
+                # get target cloud
+                target_cloud = self.pointclouds[target_idx]["pointcloud"]
 
-            # uncomment the following 2 lines to use a random cloud from T2S as target
-            #random_idx = random.randrange(0, len(self.pointclouds))
-            #target_cloud = self.pointclouds[random_idx]["pointcloud"]
-            
-            # get distractor cloud from Chinese predictions
-            chinese_root = "/media/data2/aamaduzzi/results/towards-implicit/res64/"
- 
-            for file in os.listdir(chinese_root):
-                if "_pc" in str(file) and dist_mid in str(file):
-                    #file_fix = file.replace(" ##", "")
-                    #file_fix = file_fix.replace(".", " . ")
-                    file_fix = file.translate(str.maketrans('', '', string.punctuation))
-                    file_fix = file_fix.replace(" ", "")
-                    if (text[:8]).lower() in str(file_fix):
-                        pcd = o3d.io.read_point_cloud(os.path.join(chinese_root, file))
-                        R = pcd.get_rotation_matrix_from_xyz((np.pi / 2, np.pi/2, 0))
-                        pcd.rotate(R, center=(0, 0, 0))
-                        dist_cloud = torch.Tensor(pcd.points)
-                        pc_max, _ = dist_cloud.max(dim=0, keepdim=True) # (1, 3)
-                        pc_min, _ = dist_cloud.min(dim=0, keepdim=True) # (1, 3)
-                        shift = ((pc_min + pc_max) / 2).view(1, 3)
-                        scale = torch.linalg.norm(pc_max - pc_min).reshape(1, 1)
-                        dist_cloud = (dist_cloud - shift) / scale
-                        break
+                # uncomment the following 2 lines to use a random cloud from T2S as target
+                #random_idx = random.randrange(0, len(self.pointclouds))
+                #target_cloud = self.pointclouds[random_idx]["pointcloud"]
                 
+                # get distractor cloud from Chinese predictions
+                chinese_root = "/media/data2/aamaduzzi/results/towards-implicit/res64/"
+    
+                for file in os.listdir(chinese_root):
+                    if "_pc" in str(file) and dist_mid in str(file):
+                        #file_fix = file.replace(" ##", "")
+                        #file_fix = file_fix.replace(".", " . ")
+                        file_fix = file.translate(str.maketrans('', '', string.punctuation))
+                        file_fix = file_fix.replace(" ", "")
+                        if (text[:8]).lower() in str(file_fix):
+                            pcd = o3d.io.read_point_cloud(os.path.join(chinese_root, file))
+                            R = pcd.get_rotation_matrix_from_xyz((np.pi / 2, np.pi/2, 0))
+                            pcd.rotate(R, center=(0, 0, 0))
+                            dist_cloud = torch.Tensor(pcd.points)
+                            pc_max, _ = dist_cloud.max(dim=0, keepdim=True) # (1, 3)
+                            pc_min, _ = dist_cloud.min(dim=0, keepdim=True) # (1, 3)
+                            shift = ((pc_min + pc_max) / 2).view(1, 3)
+                            scale = torch.linalg.norm(pc_max - pc_min).reshape(1, 1)
+                            dist_cloud = (dist_cloud - shift) / scale
+                            break
+                
+                clouds = [target_cloud, dist_cloud]
+
+                target=0
+                clouds, target = shuffle_ids(clouds, target)
+
+                clouds = torch.stack((clouds[0], clouds[1]))
+
+        elif self.method == "diffusion" or self.method=='clip_forge':
+            if self.path_results is None:
+                raise Exception("please specify the location of results")
+            # we pick the corresponding prediction by our model
+            dist_clouds =  np.load(os.path.join(self.path_results, 'out.npy'))
+            dist_clouds = torch.from_numpy(dist_clouds)
+            target_clouds = np.load(os.path.join(self.path_results, 'ref.npy'))
+            target_clouds = torch.from_numpy(target_clouds)
+            dist_cloud = dist_clouds[idx]
+            target_cloud = target_clouds[idx]
+
             clouds = [target_cloud, dist_cloud]
             target=0
             clouds, target = shuffle_ids(clouds, target)
 
             clouds = torch.stack((clouds[0], clouds[1]))
+
+        elif self.method=='towardsimpl_vs_diffusion':
+                # we pick the corresponding prediction by "Towards Implicit"
+                dist_mid = target_mid
+                text = self.pointclouds[target_idx]["text"]
+                text = text.translate(str.maketrans('', '', string.punctuation))
+                text = text.replace(" ", "")
+
+                # get target cloud
+                #target_cloud = self.pointclouds[target_idx]["pointcloud"]
+
+                # uncomment the following 2 lines to use a random cloud from T2S as target
+                #random_idx = random.randrange(0, len(self.pointclouds))
+                #target_cloud = self.pointclouds[random_idx]["pointcloud"]
+                
+                # get distractor cloud from Chinese predictions
+                chinese_root = "/media/data2/aamaduzzi/results/towards-implicit/res64/"
+    
+                for file in os.listdir(chinese_root):
+                    if "_pc" in str(file) and dist_mid in str(file):
+                        #file_fix = file.replace(" ##", "")
+                        #file_fix = file_fix.replace(".", " . ")
+                        file_fix = file.translate(str.maketrans('', '', string.punctuation))
+                        file_fix = file_fix.replace(" ", "")
+                        if (text[:8]).lower() in str(file_fix):
+                            pcd = o3d.io.read_point_cloud(os.path.join(chinese_root, file))
+                            R = pcd.get_rotation_matrix_from_xyz((np.pi / 2, np.pi/2, 0))
+                            pcd.rotate(R, center=(0, 0, 0))
+                            dist_cloud = torch.Tensor(pcd.points)
+                            pc_max, _ = dist_cloud.max(dim=0, keepdim=True) # (1, 3)
+                            pc_min, _ = dist_cloud.min(dim=0, keepdim=True) # (1, 3)
+                            shift = ((pc_min + pc_max) / 2).view(1, 3)
+                            scale = torch.linalg.norm(pc_max - pc_min).reshape(1, 1)
+                            dist_cloud = (dist_cloud - shift) / scale
+                            break
+                            
+                # dist_cloud = cloud from Towards Implicit
+                # target_cloud = cloud from Diffusion Model
+
+                target_clouds = np.load(os.path.join(self.path_results, 'out.npy'))
+                target_clouds = torch.from_numpy(target_clouds)
+                target_cloud = target_clouds[target_idx]
+
+                clouds = [target_cloud, dist_cloud]
+                target=0
+                clouds, target = shuffle_ids(clouds, target)
+
+                clouds = torch.stack((clouds[0], clouds[1]))
 
         mean_text_embed = self.pointclouds[target_idx]["text_embed"]
         #mean_text_embed = torch.mean(mean_text_embed, dim=0) # when I compute the mean, if the sentence is small => I have many zeros => mean is small
@@ -429,7 +497,7 @@ class Text2Shape_pairs(Text2Shape):
                 "mean_text_embed": mean_text_embed,
                 "text": text}
         
-        if idx%2000==0:
-            visualize_data_sample(clouds, target, text, f"sample_{datetime.now()}.png")   # RED:target, BLUE:distractor
+        if idx%1000==0:
+            visualize_data_sample(clouds, target, text, f"{self.method}_{datetime.now()}.png", target_idx)   # RED:target, BLUE:distractor
 
         return data
