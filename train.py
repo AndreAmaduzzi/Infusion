@@ -294,20 +294,20 @@ def train(gpu, opt, train_dset, val_dset, noises_init):
                 loss = loss.mean()
                 assert loss.dtype is torch.float32
             
-            optimizer.zero_grad()    
-            scaler.scale(loss).backward()   # mixed precision training
+            optimizer.zero_grad()       
+            scaler.scale(loss).backward()   # mixed precision training: loss is scaled and gradients are computed on scaled loss
             #loss.backward()
-
-            netpNorm, netgradNorm = getGradNorm(model)
 
             if opt.grad_clip is not None:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), opt.grad_clip, error_if_nonfinite=True)
 
-            scaler.step(optimizer)          # mixed precision training
+            scaler.step(optimizer)          # mixed precision training: gradients are UNSCALED and optimizer step is done
             #optimizer.step()
+ 
+            scaler.update()                 
 
-            scaler.update()
-            
+            netpNorm, netgradNorm = getGradNorm(model)  # extracting gradients of params, to plot them
+
             step_loss = datetime.now()
             #print('time for optimizer step: ', (step_loss-after_bw).total_seconds())
 
