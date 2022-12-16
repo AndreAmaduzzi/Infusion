@@ -121,6 +121,7 @@ def generate(model, opt):
     for i, data in tqdm(enumerate(test_dataloader), total=len(test_dataloader), desc='Generating Samples'):
         x = data['pointcloud'].transpose(1,2).cuda()   # reference clouds
         text_embed = data['text_embed'].cuda()
+        text_embed = maxlen_padding(text_embed)
         mean, std = data['mean'].float(), data['std'].float()   # in Text2Shape, we already do it when we initialize the dataset
             
         gen = model.get_clouds(text_embed, x).detach().cpu()

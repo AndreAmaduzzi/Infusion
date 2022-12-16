@@ -42,7 +42,7 @@ def chamfer_cond_uncond(model,
         with torch.no_grad():
             val_batch = next(iter(dataloader))
             text_embed_val = val_batch["text_embed"].cuda()
-            #TODO: run maxlen_padding on these text embeddings
+            text_embed_val = maxlen_padding(text_embed_val)
             x_val = val_batch['pointcloud'].transpose(1,2).cuda() 
             x_gen_eval = model.get_clouds(text_embed_val, x_val)
             # transpose shapes because metrics want (2048, 3) instead of (3, 2048)
@@ -94,7 +94,7 @@ def run_validation(model,
     for val_batch in tqdm(dataloader, desc='Generate'):     # we iterate over the WHOLE dataloader
         with torch.no_grad():
             text_embed_val = val_batch["text_embed"].cuda()
-            #TODO: run maxlen_padding on these text embeddings
+            text_embed_val = maxlen_padding(text_embed_val)
             x_val = val_batch['pointcloud'].transpose(1,2).cuda() 
             x_gen_eval = model.get_clouds(text_embed_val, x_val).detach().cpu()
             
@@ -170,6 +170,7 @@ def visualize_shape_grids(model,
 
     with torch.no_grad():       
         text_embed_train = train_batch["text_embed"].cuda()
+        text_embed_train = maxlen_padding(text_embed_train)
         x_train = train_batch["pointcloud"].transpose(1,2).cuda() 
         x_gen_eval = model.get_clouds(text_embed_train, x_train).detach().cpu()
         x_gen_list = model.get_cloud_traj(text_embed_train[0].unsqueeze(0), x_train)
@@ -213,7 +214,7 @@ def visualize_shape_grids(model,
     with torch.no_grad():
         val_batch = next(iter(val_dl))  # we pick always the first batch of the validation set
         text_embed_val = val_batch["text_embed"].cuda()
-        #TODO: run maxlen_padding on these text embeddings
+        text_embed_val = maxlen_padding(text_embed_val)
         x_val = val_batch['pointcloud'].transpose(1,2).cuda()
         x_gen_eval = model.get_clouds(text_embed_val, x_val).detach().cpu()
         x_gen_list = model.get_cloud_traj(text_embed_val[0].unsqueeze(0), x_val)
