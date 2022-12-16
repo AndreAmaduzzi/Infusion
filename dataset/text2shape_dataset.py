@@ -310,7 +310,7 @@ class Text2Shape_subset_mid(Text2Shape):
         for cloud in self.pointclouds:
             if cloud["model_id"]==m_id:
                 count+=1 
-
+        
         # pick a random index
         rand_idx = random.randrange(0, count)
 
@@ -319,6 +319,7 @@ class Text2Shape_subset_mid(Text2Shape):
         for cloud in self.pointclouds:
             if cloud["model_id"]==m_id:
                 if count==rand_idx:
+                    cloud["idx"] = idx
                     return cloud
                 else:
                     count+=1 
