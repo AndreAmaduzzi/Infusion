@@ -458,7 +458,7 @@ class Text2Shape_pairs(Text2Shape):
                 
                 # get distractor cloud from Chinese predictions
                 chinese_root = "/media/data2/aamaduzzi/results/towards-implicit/res64/"
-    
+                '''
                 for file in os.listdir(chinese_root):
                     if "_pc" in str(file) and dist_mid in str(file):
                         #file_fix = file.replace(" ##", "")
@@ -479,10 +479,15 @@ class Text2Shape_pairs(Text2Shape):
                             
                 # dist_cloud = cloud from Towards Implicit
                 # target_cloud = cloud from Diffusion Model
-
+                '''
                 target_clouds = np.load(os.path.join(self.path_results, 'out.npy'))
                 target_clouds = torch.from_numpy(target_clouds)
-                target_cloud = target_clouds[target_idx]
+                target_cloud = target_clouds[target_idx]            # TARGET: cloud from diffusion model. DISTRACTOR: cloud from Towards Implicit
+
+                # pick Towards Impl clouds from out.npy
+                dist_clouds = np.load('../diffusion-text-shape/results/towards_impl/GEN_Ours_all_1670614429/out.npy')
+                dist_clouds = torch.from_numpy(dist_clouds)
+                dist_cloud = dist_clouds[target_idx]
 
                 clouds = [target_cloud, dist_cloud]
                 target=0
