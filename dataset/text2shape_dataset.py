@@ -3,7 +3,7 @@ from typing import List, Callable
 from pathlib import Path
 from torch.utils.data import Dataset
 from pycarus.transforms.var import Compose
-from pycarus.geometry.pcd import get_tensor_pcd_from_o3d
+from pycarus.geometry.pcd import get_tensor_pcd_from_o3d, farthest_point_sampling
 import pandas as pd
 import open3d as o3d
 import torch
@@ -435,6 +435,10 @@ class Text2Shape_pairs(Text2Shape):
             
             dist_idx = random.randrange(0, len(self.pointclouds))
             dist_cloud = self.pointclouds[dist_idx]["pointcloud"]
+
+            if self.method == 'clip_forge':
+                # downsample T2S cloud, because Clip Forge clouds have 2025 pts instead of 2048 pts
+                dist_cloud = farthest_point_sampling(dist_cloud, target_cloud.shape[0])
 
             clouds = [target_cloud, dist_cloud]
             target=0
