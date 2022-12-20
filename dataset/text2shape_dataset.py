@@ -418,13 +418,23 @@ class Text2Shape_pairs(Text2Shape):
         elif self.method == "diffusion" or self.method=='clip_forge':
             if self.path_results is None:
                 raise Exception("please specify the location of results")
-            # we pick the corresponding prediction by our model
+            
+            # ref cloud vs generated cloud
             dist_clouds =  np.load(os.path.join(self.path_results, 'out.npy'))
             dist_clouds = torch.from_numpy(dist_clouds)
             target_clouds = np.load(os.path.join(self.path_results, 'ref.npy'))
             target_clouds = torch.from_numpy(target_clouds)
             dist_cloud = dist_clouds[idx]
             target_cloud = target_clouds[idx]
+
+            # gen cloud vs random T2S
+            target_clouds = np.load(os.path.join(self.path_results, 'out.npy'))
+
+            target_clouds = torch.from_numpy(target_clouds)
+            target_cloud = target_clouds[idx]
+            
+            dist_idx = random.randrange(0, len(self.pointclouds))
+            dist_cloud = self.pointclouds[dist_idx]["pointcloud"]
 
             clouds = [target_cloud, dist_cloud]
             target=0
