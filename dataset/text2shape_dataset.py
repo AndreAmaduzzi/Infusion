@@ -511,7 +511,8 @@ class Text2Shape_pairs(Text2Shape):
         data = {"clouds": clouds,
                 "target": target,
                 "mean_text_embed": mean_text_embed,
-                "text": text}
+                "text": text,
+                "idx": target_idx}
         
         if idx%1000==0:
             visualize_data_sample(clouds, target, text, f"{self.method}_{datetime.now()}.png", target_idx)   # RED:target, BLUE:distractor
