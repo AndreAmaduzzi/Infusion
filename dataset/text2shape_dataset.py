@@ -386,6 +386,13 @@ class Text2Shape_pairs(Text2Shape):
 
             target=0
             clouds, target = shuffle_ids(clouds, target)
+
+            # if one shape has only 2025 points => sample 2025 points from the other cloud.
+            if clouds[0].shape[0] > clouds[1].shape[0]:
+                clouds[0] = farthest_point_sampling(clouds[0], clouds[1].shape[0])
+            elif clouds[0].shape[0] < clouds[1].shape[0]:
+                clouds[1] = farthest_point_sampling(clouds[1], clouds[0].shape[0])
+
             clouds = torch.stack((clouds[0], clouds[1]))
 
         mean_text_embed = self.pointclouds[target_idx]["text_embed"]
