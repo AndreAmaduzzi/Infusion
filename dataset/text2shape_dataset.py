@@ -388,6 +388,7 @@ class Text2Shape_pairs(Text2Shape):
             clouds, target = shuffle_ids(clouds, target)
 
             # if one shape has only 2025 points => sample 2025 points from the other cloud.
+            # TODO: you can also sample 2048 pts from 2025 pts => investigate this...
             if clouds[0].shape[0] > clouds[1].shape[0]:
                 clouds[0] = farthest_point_sampling(clouds[0], clouds[1].shape[0])
             elif clouds[0].shape[0] < clouds[1].shape[0]:
