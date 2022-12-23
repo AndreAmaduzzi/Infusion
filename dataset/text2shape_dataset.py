@@ -342,8 +342,8 @@ class Text2Shape_pairs(Text2Shape):
         padding: bool,
         conditional_setup: bool,
         scale_mode: str,
-        method: str,
-        path_results: str,
+        shape_gt: str,
+        shape_dist: str,
         transforms: List[Callable] = []
     ) -> None:
     
@@ -351,8 +351,8 @@ class Text2Shape_pairs(Text2Shape):
                         max_length, padding, conditional_setup, scale_mode, transforms) # initialize parent Text2Shape
         
         self.max_len = max_length
-        self.method = method
-        self.path_results = path_results
+        self.shape_gt = shape_gt
+        self.shape_dist = shape_dist
 
 
     def __getitem__(self, idx): # build pairs of clouds
@@ -362,7 +362,8 @@ class Text2Shape_pairs(Text2Shape):
         target_idx = idx
         dist_mid = target_mid
 
-        if self.method is None:     # build pairs of GT T2S cloud with random T2S cloud
+        if self.shape_gt is None:            # when shape_1 and shape_2 are None => we build pairs of GT T2S and random T2S
+            assert self.shape_dist is None
             while dist_mid == target_mid:   # we randomly sample a shape which is different from the current 
                 dist_idx = random.randint(0, len(self.pointclouds)-1)
                 dist_mid = self.pointclouds[dist_idx]["model_id"]
@@ -489,9 +490,12 @@ class Text2Shape_pairs(Text2Shape):
                 target_cloud = target_clouds[target_idx]            # TARGET: cloud from diffusion model. DISTRACTOR: cloud from Towards Implicit
 
                 # pick Towards Impl clouds from out.npy
-                dist_clouds = np.load('../diffusion-text-shape/results/towards_impl/GEN_Ours_all_1670614429/out.npy')
+                dist_clouds = np.load('../diffusion-text-shape/results/clip_forge/GEN_Ours_all_1670605256/out.npy')
+                #dist_clouds = np.load('../diffusion-text-shape/results/towards_impl/GEN_Ours_all_1670614429/out.npy')
                 dist_clouds = torch.from_numpy(dist_clouds)
                 dist_cloud = dist_clouds[target_idx]
+
+                target_cloud = farthest_point_sampling(target_cloud, dist_cloud.shape[0])   # sample 2025 pts from Diffusion cloud, to make it compliant with Clip-Forge
 
                 clouds = [target_cloud, dist_cloud]
                 target=0
@@ -518,7 +522,7 @@ class Text2Shape_pairs(Text2Shape):
                 "text": text,
                 "idx": target_idx}
         
-        if idx%1000==0:
-            visualize_data_sample(clouds, target, text, f"{self.method}_{datetime.now()}.png", target_idx)   # RED:target, BLUE:distractor
+        #if idx%1000==0:
+        #    visualize_data_sample(clouds, target, text, f"{self.method}_{datetime.now()}.png", target_idx)   # RED:target, BLUE:distractor
 
         return data
