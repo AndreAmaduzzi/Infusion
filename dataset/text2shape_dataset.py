@@ -38,10 +38,10 @@ def shuffle_ids(ids, label, random_seed=None):
 
     return res_ids, target
 
-def visualize_data_sample(pointclouds, target, text, path, idx):
+def visualize_data_sample(pointclouds, target, img_title, path, idx):
     n_clouds = len(pointclouds)
     fig = plt.figure(figsize=(20,20))
-    plt.title(label=text + f", target: {target}, idx={idx}", fontsize=15)
+    plt.title(label=img_title, fontsize=25)
     plt.axis('off')
     ncols = n_clouds
     nrows = 1
