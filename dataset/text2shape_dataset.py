@@ -59,6 +59,7 @@ class Text2Shape(Dataset):
     def __init__(
         self,
         root: Path,
+        chatgpt_prompts: bool=False,
         split: str,
         categories: str,
         from_shapenet_v1: bool,
@@ -109,11 +110,22 @@ class Text2Shape(Dataset):
         
         # get text_prompt, model_id, category
         if from_shapenet_v2:
-            annotations_path = self.root / "annotations" / "from_shapenet_v2" / f"{self.split}_{self.categories}.csv"
-            train_path = self.root / "annotations" / "from_shapenet_v2" / f"train_{self.categories}.csv"
+            if chatgpt_prompts:
+                annotations_path = self.root / "annotations_chatgpt" / "from_shapenet_v2" / f"{self.split}_{self.categories}.csv"
+                train_path = self.root / "annotations_chatgpt" / "from_shapenet_v2" / f"train_{self.categories}.csv"
+            else:
+                annotations_path = self.root / "annotations" / "from_shapenet_v2" / f"{self.split}_{self.categories}.csv"
+                train_path = self.root / "annotations" / "from_shapenet_v2" / f"train_{self.categories}.csv"
         elif from_shapenet_v1:
-            annotations_path = self.root / "annotations" / "from_shapenet_v1" / f"{self.split}_{self.categories}.csv"
-            train_path = self.root / "annotations" / "from_shapenet_v1" / f"train_{self.categories}.csv"
+            if chatgpt_prompts:
+                annotations_path = self.root / "annotations_chatgpt" / "from_shapenet_v1" / f"{self.split}_{self.categories}.csv"
+                train_path = self.root / "annotations_chatgpt" / "from_shapenet_v1" / f"train_{self.categories}.csv"
+            else:
+                annotations_path = self.root / "annotations" / "from_shapenet_v1" / f"{self.split}_{self.categories}.csv"
+                train_path = self.root / "annotations" / "from_shapenet_v1" / f"train_{self.categories}.csv"                
+        elif chatgpt_prompts:
+            annotations_path = self.root / "annotations_chatgpt" / "from_text2shape" / f"{self.split}_{self.categories}.csv"
+            train_path = self.root / "annotations_chatgpt" / "from_tetx2shape" / f"train_{self.categories}.csv"
         else:
             annotations_path = self.root / "annotations" / "from_text2shape" / f"{self.split}_{self.categories}.csv"
             train_path = self.root / "annotations" / "from_tetx2shape" / f"train_{self.categories}.csv"
@@ -180,20 +192,32 @@ class Text2Shape(Dataset):
             tensor_name = row["tensor"]
             if lowercase_text:
                 if padding:
-                    text_embed_path = self.root / "text_embeds" / language_model / "lowercase" /  "padding" / f"{tensor_name}"
+                    if chatgpt_prompts:
+                        text_embed_path = self.root / "text_embeds_chatgpt" / language_model / "lowercase" /  "padding" / f"{tensor_name}"
+                    else:
+                        text_embed_path = self.root / "text_embeds" / language_model / "lowercase" /  "padding" / f"{tensor_name}"
+                elif chatgpt_prompts:
+                    text_embed_path = self.root / "text_embeds_chatgpt" / language_model / "lowercase" / f"{tensor_name}"
                 else:
                     text_embed_path = self.root / "text_embeds" / language_model / "lowercase" / f"{tensor_name}"
             else:
                 if padding:
+                    if chatgpt_prompts:
+                        text_embed_path = self.root / "text_embeds_chatgpt" / language_model / "std" /  "padding" / f"{tensor_name}"
                     text_embed_path = self.root / "text_embeds" / language_model / "std" /  "padding" / f"{tensor_name}"
+                elif chatgpt_prompts:
+                    text_embed_path = self.root / "text_embeds_chatgpt" / language_model / "std" / f"{tensor_name}"
                 else:
                     text_embed_path = self.root / "text_embeds" / language_model / "std" / f"{tensor_name}"
             
             if padding:
-                text_embed = torch.load(text_embed_path, map_location='cpu')  # TODO: check if I am still loading data on GPU or not
+                text_embed = torch.load(text_embed_path, map_location='cpu')
             else:
-                text_embed = torch.load(text_embed_path, map_location='cpu')[:max_length]  # TODO: check if I am still loading data on GPU or not
-
+                text_embed = torch.load(text_embed_path, map_location='cpu')
+                if text_embed.shape[0] > max_length:
+                    print('Warning: we are truncating a text embedding...')
+                text_embed = text_embed[:max_length]       # truncate to max_length => [max_length, 1024]
+                
                 
             # build mask for this text embedding (i have text embeds length and max length)
             #key_padding_mask_false = torch.zeros((1+text_embed.shape[0]), dtype=torch.bool)             # False => elements will be processed
@@ -273,6 +297,7 @@ class Text2Shape_subset_mid(Text2Shape):
     def __init__(
         self,
         root: Path,
+        chatgpt_prompts: bool=False,
         split: str,
         categories: str,
         from_shapenet_v1: bool,
@@ -295,7 +320,7 @@ class Text2Shape_subset_mid(Text2Shape):
         
         '''
 
-        super().__init__(root, split, categories, from_shapenet_v1, from_shapenet_v2, language_model, lowercase_text, 
+        super().__init__(root, chatgpt_prompts, split, categories, from_shapenet_v1, from_shapenet_v2, language_model, lowercase_text, 
                         max_length, padding, conditional_setup=True, scale_mode=scale_mode, transforms=transforms) # initialize parent Text2Shape
 
         # get unique model_ids
@@ -332,6 +357,7 @@ class Text2Shape_pairs(Text2Shape):
     def __init__(
         self,
         root: Path,
+        chatgpt_prompts: bool=False,
         split: str,
         categories: str,
         from_shapenet_v1: bool,
@@ -347,7 +373,7 @@ class Text2Shape_pairs(Text2Shape):
         transforms: List[Callable] = []
     ) -> None:
     
-        super().__init__(root, split, categories, from_shapenet_v1, from_shapenet_v2, language_model, lowercase_text, 
+        super().__init__(root, chatgpt_prompts, split, categories, from_shapenet_v1, from_shapenet_v2, language_model, lowercase_text, 
                         max_length, padding, conditional_setup, scale_mode, transforms) # initialize parent Text2Shape
         
         self.max_len = max_length
