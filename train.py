@@ -15,7 +15,7 @@ from utils.misc import *
 from utils.evaluation import *
 from models import *
 from models.infusion import Infusion
-from dataset.text2shape_dataset import Text2Shape
+from dataset.text2shape_dataset import Text2Shape, Text2Shape_subset_mid
 from dataset.utils import *
 from pycarus.metrics.chamfer_distance import chamfer
 from pathlib import Path
@@ -75,8 +75,9 @@ def get_shapenet_dataset(dataroot, npoints, category):
     )
     return tr_dataset, val_dataset
 
-def get_text2shape_dataset(dataroot, category, val_size):
+def get_text2shape_dataset(dataroot, category):
     tr_dataset = Text2Shape(root=Path(dataroot),
+        chatgpt_prompts = True,
         split="train",
         categories=category,
         from_shapenet_v1=True,
@@ -84,13 +85,12 @@ def get_text2shape_dataset(dataroot, category, val_size):
         conditional_setup=True,
         language_model="t5-11b",
         lowercase_text=True,
-        max_length=77,
+        max_length=512,
         padding=False,
         scale_mode="global_unit")    # global unit
     
-    #tr_dataset = Subset(tr_dataset, indices=range(0,5))
-
     val_dataset = Text2Shape(root=Path(dataroot),
+        chatgpt_prompts=True,
         split="val",
         categories=category,
         from_shapenet_v1=True,
@@ -98,14 +98,11 @@ def get_text2shape_dataset(dataroot, category, val_size):
         conditional_setup=True,
         language_model="t5-11b",
         lowercase_text=True,
-        max_length=77,
+        max_length=512,
         padding=False,
         scale_mode="global_unit"     # global unit
        )
     
-    #val_dataset = Subset(val_dataset, indices=range(0, val_size))
-
-
     return tr_dataset, val_dataset
     
 def get_dataloader(opt, train_dataset, val_dataset=None):
