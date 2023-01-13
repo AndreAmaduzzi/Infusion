@@ -65,6 +65,7 @@ def get_shapenet_dataset(dataroot, npoints, category):
 def get_test_text2shape_dataset(dataroot, category):
     test_dataset = Text2Shape(root=Path(dataroot),
         split="test",
+        chatgpt_prompts=True,
         categories=category,
         from_shapenet_v1=True,
         from_shapenet_v2=False,
