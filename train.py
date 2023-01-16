@@ -85,7 +85,7 @@ def get_text2shape_dataset(dataroot, category):
         conditional_setup=True,
         language_model="t5-11b",
         lowercase_text=True,
-        max_length=512,
+        max_length=77,         
         padding=False,
         scale_mode="global_unit")    # global unit
     
@@ -98,7 +98,7 @@ def get_text2shape_dataset(dataroot, category):
         conditional_setup=True,
         language_model="t5-11b",
         lowercase_text=True,
-        max_length=512,
+        max_length=77,         
         padding=False,
         scale_mode="global_unit"     # global unit
        )
