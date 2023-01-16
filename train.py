@@ -130,9 +130,6 @@ def get_dataloader(opt, train_dataset, val_dataset=None):
                                                    shuffle=train_sampler is None, num_workers=int(opt.workers), drop_last=True)
                                                     # drop_last drops the last incomplete batch, if the dataset size is not divisible by the batch size
 
-    if opt.val_size is not None:
-        val_dataset = Subset(val_dataset, indices=range(0, opt.val_size))
-
     if val_dataset is not None:
         val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=opt.bs,sampler=val_samples,
                                                    shuffle=False, num_workers=int(opt.workers), drop_last=False)
@@ -403,6 +400,8 @@ def train(gpu, opt, train_dset, val_dset, noises_init):
                 logger.info('Running validation...')
                 # build reference histogram for validation set with first val_size elements (for example, 1000)
                 ref_hist = dict()  
+                if opt.val_size is None:
+                    opt.val_size = len(val_dset)
                 for i in range(0, opt.val_size):
                     if val_dset[i]["model_id"] in ref_hist.keys():
                         ref_hist[val_dset[i]["model_id"]] += 1
@@ -535,7 +534,7 @@ def parse_args():
     parser.add_argument('--vizEpoch', default=50, help='unit: epoch when visualization is done')
     parser.add_argument('--valEpoch', default=1, help='unit: epoch when validation is done')
     parser.add_argument('--compEpoch', default=10000, help='unit: epoch when comparison with unconditional PVD is done')
-    parser.add_argument('--val_size', default=1000, help='number of clouds evaluated during validation')
+    parser.add_argument('--val_size', default=None, help='number of clouds evaluated during validation')    # if None => validation is computed on whole validation dset
     parser.add_argument('--print_freq', default=100, help='unit: iter where gradients and step are printed')
     parser.add_argument('--manualSeed', default=42, type=int, help='random seed')
 
