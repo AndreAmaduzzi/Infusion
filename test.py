@@ -122,6 +122,8 @@ def generate(model, opt):
     for i, data in tqdm(enumerate(test_dataloader), total=len(test_dataloader), desc='Generating Samples'):
         x = data['pointcloud'].transpose(1,2).cuda()   # reference clouds
         text_embed = data['text_embed'].cuda()
+        if opt.maxlen_pad==True:
+            print('maxlen padding here')
         text_embed = maxlen_padding(text_embed)
         mean, std = data['mean'].float(), data['std'].float()   # in Text2Shape, we already do it when we initialize the dataset
             
@@ -302,7 +304,8 @@ def parse_args():
 
 
     # path to checkpt of trained model and PVD model
-    parser.add_argument('--model', default='./exps/smaller_pvd_500_fp16/epoch_99.pth', help="path to model (to continue training)")
+    parser.add_argument('--maxlen_pad', action='store_true')
+
 
     # distributed training
     parser.add_argument('--world_size', default=1, type=int,
