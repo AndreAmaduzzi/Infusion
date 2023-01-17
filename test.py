@@ -62,10 +62,10 @@ def get_shapenet_dataset(dataroot, npoints, category):
     )
     return tr_dataset, val_dataset
 
-def get_test_text2shape_dataset(dataroot, category):
+def get_test_text2shape_dataset(dataroot, category, chatgpt_prompts):
     test_dataset = Text2Shape(root=Path(dataroot),
         split="test",
-        chatgpt_prompts=True,
+        chatgpt_prompts=chatgpt_prompts,
         categories=category,
         from_shapenet_v1=True,
         from_shapenet_v2=False,
@@ -99,7 +99,7 @@ def get_test_dataloader(opt, test_dataset):
 
 
 def generate(model, opt):
-    test_dataset = get_test_text2shape_dataset(opt.t2s_dataroot, opt.category)
+    test_dataset = get_test_text2shape_dataset(opt.t2s_dataroot, opt.category, opt.chatgpt_prompts)
     ref_hist = dict()
     texts = []
     model_ids = []
@@ -258,7 +258,9 @@ def main():
         elif opt.distribution_type == 'multi':
             raise Exception('multi processing not allowed during test')
 
-
+        if opt.chatgpt_prompts:
+            outf_dir = os.path.join(opt.eval_dir, f'epoch_{epoch}_chatgpt')
+        else:
         outf_dir = os.path.join(opt.eval_dir, f'epoch_{epoch}')
         print('outf_dir: ', outf_dir)
         if not os.path.exists(outf_dir):
@@ -305,6 +307,7 @@ def parse_args():
 
     # path to checkpt of trained model and PVD model
     parser.add_argument('--maxlen_pad', action='store_true')
+    parser.add_argument('--chatgpt_prompts', action='store_true')
 
 
     # distributed training
