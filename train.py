@@ -25,6 +25,7 @@ from datetime import datetime
 import os
 import math
 from dataset.shapenet_data_pc import ShapeNet15kPointClouds
+import shutil
 
 def set_seed(opt):
     if opt.manualSeed is None:
@@ -141,6 +142,16 @@ def get_dataloader(opt, train_dataset, val_dataset=None):
 def train(gpu, opt, train_dset, val_dset, noises_init):
 
     set_new_seed(opt)
+    
+    # save current train.py to output_dir
+    source = 'train.py'
+    destination = os.path.join(opt.output_dir, f'train_{datetime.now()}.py')
+    try:
+        shutil.copy(source, destination)
+        print("train.py copied successfully to ", destination)
+    except:
+        print("Error occurred while copying file.")
+
     logger = setup_logging(opt.output_dir)
     if opt.distribution_type == 'multi':
         should_diag = gpu==0
