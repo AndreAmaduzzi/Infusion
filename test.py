@@ -261,7 +261,7 @@ def main():
         if opt.chatgpt_prompts:
             outf_dir = os.path.join(opt.eval_dir, f'epoch_{epoch}_chatgpt')
         else:
-        outf_dir = os.path.join(opt.eval_dir, f'epoch_{epoch}')
+            outf_dir = os.path.join(opt.eval_dir, f'epoch_{epoch}')
         print('outf_dir: ', outf_dir)
         if not os.path.exists(outf_dir):
             outf_dir = os.makedirs(outf_dir)
