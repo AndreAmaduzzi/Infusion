@@ -146,7 +146,7 @@ class Text2Shape(Dataset):
             print('global mean: ', global_mean)
             print('global std: ', global_std)
 
-
+        count_trunc = 0
         for idx, row in df.iterrows():
             # read_pcd
             text = row["description"]
@@ -215,8 +215,8 @@ class Text2Shape(Dataset):
             else:
                 text_embed = torch.load(text_embed_path, map_location='cpu')
                 if text_embed.shape[0] > max_length:
-                    print('Warning: we are truncating a text embedding...')
-                text_embed = text_embed[:max_length]       # truncate to max_length => [max_length, 1024]
+                    count_trunc += 1
+                    text_embed = text_embed[:max_length]       # truncate to max_length => [max_length, 1024]
                 
                 
             # build mask for this text embedding (i have text embeds length and max length)
