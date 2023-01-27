@@ -398,6 +398,17 @@ class Text2Shape_pairs(Text2Shape):
             target = 0
             idxs, target = shuffle_ids(idxs, target)    # shuffle ids
             clouds = torch.stack((self.pointclouds[idxs[0]]["pointcloud"], self.pointclouds[idxs[1]]["pointcloud"]))
+            cates = [self.pointclouds[idxs[0]]["cate"], self.pointclouds[idxs[1]]["cate"]]
+
+            # replace name of objects with corresponding indices of ShapeNetPart
+            class_labels = []
+            for cate in cates:
+                if cate=="Chair":
+                    class_labels.append(4)
+                elif cate=="Table":
+                    class_labels.append(15)
+
+            class_labels = torch.Tensor(class_labels)
 
         else:
             # build pair with GT and DIST shapes
@@ -423,6 +434,8 @@ class Text2Shape_pairs(Text2Shape):
 
             clouds = torch.stack((clouds[0], clouds[1]))
 
+            class_labels = torch.Tensor()
+
         mean_text_embed = self.pointclouds[target_idx]["text_embed"]
         
         # compute mean, ignoring zeros of padding
@@ -440,6 +453,7 @@ class Text2Shape_pairs(Text2Shape):
                 "mean_text_embed": mean_text_embed,
                 "text_embed": self.pointclouds[target_idx]["text_embed"],
                 "text": text,
+                "class_labels": class_labels,                               # TODO: check class_labels
                 "idx": target_idx}
         
         #if idx%1000==0:
