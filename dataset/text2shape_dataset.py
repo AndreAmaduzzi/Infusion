@@ -438,6 +438,7 @@ class Text2Shape_pairs(Text2Shape):
         data = {"clouds": clouds,
                 "target": target,
                 "mean_text_embed": mean_text_embed,
+                "text_embed": self.pointclouds[target_idx]["text_embed"],
                 "text": text,
                 "idx": target_idx}
         
