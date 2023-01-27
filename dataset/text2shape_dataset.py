@@ -251,6 +251,7 @@ class Text2Shape(Dataset):
         # Deterministically shuffle the dataset
         self.pointclouds.sort(key=lambda data: data['model_id'], reverse=False)
         random.Random(2020).shuffle(self.pointclouds)
+        print(count_trunc ,' truncated text embeds')
 
     def get_ds_statistics(self, dataframe, from_shapenet_v1, from_shapenet_v2): # compute mean and std dev across required dataset
         dataframe_ = dataframe.drop_duplicates(subset=['modelId'])
