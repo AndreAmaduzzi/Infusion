@@ -162,7 +162,7 @@ class Text2Shape(Dataset):
                 pc = o3d.io.read_point_cloud(model_path)
                 pc = get_tensor_pcd_from_o3d(pc)
             else:
-                model_path = str(self.root / "shapes" / "text2shape" / f"{model_id}.ply")
+                model_path = str(self.root / "shapes" / "text2shape_rgb" / f"{model_id}.ply")
                 pc = o3d.io.read_point_cloud(model_path)
                 pc = get_tensor_pcd_from_o3d(pc)
             #scaling the pcd (from diffusion-pointcloud code)
@@ -170,24 +170,24 @@ class Text2Shape(Dataset):
                 shift = global_mean
                 scale = global_std
             elif self.scale_mode == 'shape_unit':
-                    shift = pc.mean(dim=0).reshape(1, 3)
-                    scale = pc.flatten().std().reshape(1, 1)
+                    shift = pc[:,:3].mean(dim=0).reshape(1, 3)
+                    scale = pc[:,:3].flatten().std().reshape(1, 1)
             elif self.scale_mode == 'shape_half':
-                    shift = pc.mean(dim=0).reshape(1, 3)
-                    scale = pc.flatten().std().reshape(1, 1) / (0.5)
+                    shift = pc[:,:3].mean(dim=0).reshape(1, 3)
+                    scale = pc[:,:3].flatten().std().reshape(1, 1) / (0.5)
             elif self.scale_mode == 'shape_34':
-                    shift = pc.mean(dim=0).reshape(1, 3)
-                    scale = pc.flatten().std().reshape(1, 1) / (0.75)
+                    shift = pc[:,:3].mean(dim=0).reshape(1, 3)
+                    scale = pc[:,:3].flatten().std().reshape(1, 1) / (0.75)
             elif self.scale_mode == 'shape_bbox':
-                    pc_max, _ = pc.max(dim=0, keepdim=True) # (1, 3)
-                    pc_min, _ = pc.min(dim=0, keepdim=True) # (1, 3)
+                    pc_max, _ = pc[:,:3].max(dim=0, keepdim=True) # (1, 3)
+                    pc_min, _ = pc[:,:3].min(dim=0, keepdim=True) # (1, 3)
                     shift = ((pc_min + pc_max) / 2).view(1, 3)
                     scale = (pc_max - pc_min).max().reshape(1, 1) / 2
             else:
                     shift = torch.zeros([1, 3])
                     scale = torch.ones([1, 1])
-
-            pc = (pc - shift) / scale
+            print(pc.shape)
+            pc[:,:3] = (pc[:,:3] - shift) / scale
 
             tensor_name = row["tensor"]
             if lowercase_text:
