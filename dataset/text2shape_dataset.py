@@ -125,10 +125,10 @@ class Text2Shape(Dataset):
                 train_path = self.root / "annotations" / "from_shapenet_v1" / f"train_{self.categories}.csv"                
         elif chatgpt_prompts:
             annotations_path = self.root / "annotations_chatgpt" / "from_text2shape" / f"{self.split}_{self.categories}.csv"
-            train_path = self.root / "annotations_chatgpt" / "from_tetx2shape" / f"train_{self.categories}.csv"
+            train_path = self.root / "annotations_chatgpt" / "from_text2shape" / f"train_{self.categories}.csv"
         else:
             annotations_path = self.root / "annotations" / "from_text2shape" / f"{self.split}_{self.categories}.csv"
-            train_path = self.root / "annotations" / "from_tetx2shape" / f"train_{self.categories}.csv"
+            train_path = self.root / "annotations" / "from_text2shape" / f"train_{self.categories}.csv"
 
 
         print('annotations: ', annotations_path)
