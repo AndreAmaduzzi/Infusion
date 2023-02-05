@@ -399,6 +399,7 @@ class Text2Shape_pairs(Text2Shape):
             idxs, target = shuffle_ids(idxs, target)    # shuffle ids
             clouds = torch.stack((self.pointclouds[idxs[0]]["pointcloud"], self.pointclouds[idxs[1]]["pointcloud"]))
             cates = [self.pointclouds[idxs[0]]["cate"], self.pointclouds[idxs[1]]["cate"]]
+            mids = [self.pointclouds[idxs[0]]["model_id"], self.pointclouds[idxs[1]]["model_id"]]
 
             # replace name of objects with corresponding indices of ShapeNetPart
             class_labels = []
@@ -449,6 +450,7 @@ class Text2Shape_pairs(Text2Shape):
         text = self.pointclouds[target_idx]["text"]
 
         data = {"clouds": clouds,
+                "mids": mids,
                 "target": target,
                 "mean_text_embed": mean_text_embed,
                 "text_embed": self.pointclouds[target_idx]["text_embed"],
