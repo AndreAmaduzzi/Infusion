@@ -183,6 +183,11 @@ class Text2Shape(Dataset):
                     pc_min, _ = pc[:,:3].min(dim=0, keepdim=True) # (1, 3)
                     shift = ((pc_min + pc_max) / 2).view(1, 3)
                     scale = (pc_max - pc_min).max().reshape(1, 1) / 2
+            elif self.scale_mode == 'shapenet_v1_norm':
+                    pc_max, _ = pc[:,:3].max(dim=0, keepdim=True) # (1, 3)
+                    pc_min, _ = pc[:,:3].min(dim=0, keepdim=True) # (1, 3)
+                    shift = ((pc_min + pc_max) / 2).view(1, 3)
+                    scale = torch.linalg.norm(pc_max - pc_min).reshape(1, 1)
             else:
                     shift = torch.zeros([1, 3])
                     scale = torch.ones([1, 1])
