@@ -59,7 +59,7 @@ class Text2Shape(Dataset):
     def __init__(
         self,
         root: Path,
-        chatgpt_prompts: bool=False,
+        chatgpt_prompts: bool,
         split: str,
         categories: str,
         from_shapenet_v1: bool,
@@ -191,7 +191,6 @@ class Text2Shape(Dataset):
             else:
                     shift = torch.zeros([1, 3])
                     scale = torch.ones([1, 1])
-            print(pc.shape)
             pc[:,:3] = (pc[:,:3] - shift) / scale
 
             tensor_name = row["tensor"]
@@ -303,7 +302,7 @@ class Text2Shape_subset_mid(Text2Shape):
     def __init__(
         self,
         root: Path,
-        chatgpt_prompts: bool=False,
+        chatgpt_prompts: bool,
         split: str,
         categories: str,
         from_shapenet_v1: bool,
@@ -363,7 +362,7 @@ class Text2Shape_pairs(Text2Shape):
     def __init__(
         self,
         root: Path,
-        chatgpt_prompts: bool=False,
+        chatgpt_prompts: bool,
         split: str,
         categories: str,
         from_shapenet_v1: bool,
@@ -392,9 +391,9 @@ class Text2Shape_pairs(Text2Shape):
         target_idx = idx
         dist_mid = target_mid
 
-        if self.shape_gt is None:            # when shape_1 and shape_2 are None => we build pairs of GT T2S and random T2S
+        if self.shape_gt is None:               # when shape_1 and shape_2 are None => we build pairs of GT T2S and random T2S
             assert self.shape_dist is None
-            while dist_mid == target_mid:   # we randomly sample a shape which is different from the current 
+            while dist_mid == target_mid:       # we randomly sample a shape which is different from the current one
                 dist_idx = random.randint(0, len(self.pointclouds)-1)
                 dist_mid = self.pointclouds[dist_idx]["model_id"]
             
@@ -463,7 +462,7 @@ class Text2Shape_pairs(Text2Shape):
                 "class_labels": class_labels,                               # TODO: check class_labels
                 "idx": target_idx}
         
-        #if idx%1000==0:
-        #    visualize_data_sample(clouds, target, text, f"{self.method}_{datetime.now()}.png", target_idx)   # RED:target, BLUE:distractor
+        if idx%2000==0:
+            visualize_data_sample(clouds, target, str(text + f'_target={target}'), f"data_{self.split}_{idx}_{cates}.png", target_idx)   # RED:target, BLUE:distractor
 
         return data
