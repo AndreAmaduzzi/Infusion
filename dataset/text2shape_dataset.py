@@ -14,6 +14,8 @@ import random
 from datetime import datetime
 import matplotlib.pyplot as plt
 import string
+import json
+from tqdm import tqdm
 
 
 DEFAULT_T5_NAME = 't5-11b'
@@ -164,6 +166,8 @@ class Text2Shape(Dataset):
             else:
                 model_path = str(self.root / "shapes" / "text2shape_rgb" / f"{model_id}.ply")
                 pc = o3d.io.read_point_cloud(model_path)
+                if np.asarray(pc.points).shape[0] != 2048:  # happens for model_id: 791c14d53bd565f56ba14bfd91a75020 (empty) and others
+                    continue
                 pc = get_tensor_pcd_from_o3d(pc)
             #scaling the pcd (from diffusion-pointcloud code)
             if self.scale_mode == "global_unit":
@@ -297,7 +301,6 @@ class Text2Shape(Dataset):
         
         return data
 
-
 class Text2Shape_subset_mid(Text2Shape):
     def __init__(
         self,
@@ -356,7 +359,6 @@ class Text2Shape_subset_mid(Text2Shape):
 
     def __len__(self):
         return len(self.m_ids)
-    
 
 class Text2Shape_pairs(Text2Shape):
     def __init__(
@@ -389,11 +391,12 @@ class Text2Shape_pairs(Text2Shape):
     def __getitem__(self, idx): # build pairs of clouds
         target_mid = self.pointclouds[idx]["model_id"]
         target_idx = idx
+        dist_idx = idx
         dist_mid = target_mid
 
         if self.shape_gt is None:               # when shape_1 and shape_2 are None => we build pairs of GT T2S and random T2S
             assert self.shape_dist is None
-            while dist_mid == target_mid:       # we randomly sample a shape which is different from the current one
+            while dist_mid == target_mid:       # we randomly sample a shape which is different from the current one (may also be a different class)
                 dist_idx = random.randint(0, len(self.pointclouds)-1)
                 dist_mid = self.pointclouds[dist_idx]["model_id"]
             
@@ -459,10 +462,218 @@ class Text2Shape_pairs(Text2Shape):
                 "mean_text_embed": mean_text_embed,
                 "text_embed": self.pointclouds[target_idx]["text_embed"],
                 "text": text,
-                "class_labels": class_labels,                               # TODO: check class_labels
+                "class_labels": class_labels,                              
                 "idx": target_idx}
         
-        if idx%2000==0:
-            visualize_data_sample(clouds, target, str(text + f'_target={target}'), f"data_{self.split}_{idx}_{cates}.png", target_idx)   # RED:target, BLUE:distractor
+        #visualize_data_sample(clouds, target, str(text + f'_target={target}'), f"data_2_{self.split}_{idx}_{cates}.png", target_idx)   # RED:target, BLUE:distractor
 
+        return data
+    
+class Text2Shape_humaneval(Dataset):
+    '''
+    
+    dataset with T2S pointclouds where text and pairs are taken from JSON file of Human Evaluation
+    
+    '''
+    
+    def __init__(
+        self,
+        json_path: Path,
+        t2s_root: Path,
+        categories: str,
+        from_shapenet_v1: bool,
+        from_shapenet_v2: bool,
+        language_model: str,
+        lowercase_text: bool,
+        max_length: int,
+        padding: bool,
+        scale_mode: str,
+        transforms: List[Callable] = []
+        ) -> None:
+        
+        super().__init__()
+        print('Building Dataset from JSON...')
+        
+        self.t2s_root = t2s_root
+        self.scale_mode = scale_mode
+        self.transform = Compose(transforms)
+        self.categories = categories
+        
+        # read JSON
+        with open(json_path, 'r') as f:
+            json_data = json.load(f)
+        
+        #TODO: implement categories choice: if "chair" => pick only pairs with 2 chairs
+        if categories != "all":
+            # build list of model_ids with this shape
+            cate_mids = []
+            test_ids = Text2Shape(
+                        root = self.t2s_root,
+                        chatgpt_prompts = True,
+                        split = 'test',
+                        categories = self.categories,
+                        from_shapenet_v1 = False,
+                        from_shapenet_v2 = False,
+                        language_model = 't5-11b',
+                        lowercase_text = True,
+                        max_length = 77,
+                        padding = False,
+                        conditional_setup = False,
+                        scale_mode = "shapenet_v1_norm")
+    
+            for i in range(len(test_ids)):
+                cate_mids.append(test_ids[i]["model_id"])
+        
+        self.data = []
+        count_trunc = 0
+        for idx, d in enumerate(tqdm(json_data, desc='Parsing JSON data...')):
+            gt_id = d["gt_id"]
+            dist_id = d["dist_id"]
+            if categories!= "all" and (gt_id not in cate_mids or dist_id not in cate_mids):
+                continue
+            text = d["text"]
+            dataset = d["dataset"]
+            tensor_name = d["tensor_name"]
+            
+            # build pair of clouds
+            mids = [gt_id, dist_id]
+            target = 0
+            mids, target = shuffle_ids(mids, target)
+            # pick clouds by model_id, from desired location
+            if from_shapenet_v1:
+                model_path_0 = str(self.t2s_root / "shapes" / "shapenet_v1" / f"{mids[0]}.ply")
+                o3d_pcd = o3d.io.read_point_cloud(model_path_0)
+                pc_0 = get_tensor_pcd_from_o3d(o3d_pcd)
+                model_path_1 = str(self.t2s_root / "shapes" / "shapenet_v1" / f"{mids[1]}.ply")
+                o3d_pcd = o3d.io.read_point_cloud(model_path_1)
+                pc_1 = get_tensor_pcd_from_o3d(o3d_pcd)
+            elif from_shapenet_v2:
+                model_path_0 = str(self.t2s_root / "shapes" / "shapenet_v2" / f"{mids[0]}.ply")
+                o3d_pcd = o3d.io.read_point_cloud(model_path_0)
+                pc_0 = get_tensor_pcd_from_o3d(o3d_pcd)
+                model_path_1 = str(self.t2s_root / "shapes" / "shapenet_v2" / f"{mids[1]}.ply")
+                o3d_pcd = o3d.io.read_point_cloud(model_path_1)
+                pc_1 = get_tensor_pcd_from_o3d(o3d_pcd)
+            else:
+                model_path_0 = str(self.t2s_root / "shapes" / "text2shape_rgb" / f"{mids[0]}.ply")
+                o3d_pcd = o3d.io.read_point_cloud(model_path_0)
+                pc_0 = get_tensor_pcd_from_o3d(o3d_pcd)
+                model_path_1 = str(self.t2s_root / "shapes" / "text2shape_rgb" / f"{mids[1]}.ply")
+                o3d_pcd = o3d.io.read_point_cloud(model_path_1)
+                pc_1 = get_tensor_pcd_from_o3d(o3d_pcd)
+                        
+            # normalize clouds
+            if self.scale_mode == 'shape_unit':
+                    shift_0 = pc_0[:,:3].mean(dim=0).reshape(1, 3)
+                    scale_0 = pc_0[:,:3].flatten().std().reshape(1, 1)
+                    shift_1 = pc_1[:,:3].mean(dim=0).reshape(1, 3)
+                    scale_1 = pc_1[:,:3].flatten().std().reshape(1, 1)                    
+            elif self.scale_mode == 'shape_half':
+                    shift_0 = pc_0[:,:3].mean(dim=0).reshape(1, 3)
+                    scale_0 = pc_0[:,:3].flatten().std().reshape(1, 1) / (0.5)
+                    shift_1 = pc_1[:,:3].mean(dim=0).reshape(1, 3)
+                    scale_1 = pc_1[:,:3].flatten().std().reshape(1, 1) / (0.5)
+            elif self.scale_mode == 'shape_34':
+                    shift_0 = pc_0[:,:3].mean(dim=0).reshape(1, 3)
+                    scale_0 = pc_0[:,:3].flatten().std().reshape(1, 1) / (0.75)
+                    shift_1 = pc_1[:,:3].mean(dim=0).reshape(1, 3)
+                    scale_1 = pc_1[:,:3].flatten().std().reshape(1, 1) / (0.75)
+            elif self.scale_mode == 'shape_bbox':
+                    pc_max_0, _ = pc_0[:,:3].max(dim=0, keepdim=True) # (1, 3)
+                    pc_min_0, _ = pc_0[:,:3].min(dim=0, keepdim=True) # (1, 3)
+                    shift_0 = ((pc_min_0 + pc_max_0) / 2).view(1, 3)
+                    scale_0 = (pc_max_0 - pc_min_0).max().reshape(1, 1) / 2
+                    pc_max_1, _ = pc_1[:,:3].max(dim=0, keepdim=True) # (1, 3)
+                    pc_min_1, _ = pc_1[:,:3].min(dim=0, keepdim=True) # (1, 3)
+                    shift_1 = ((pc_min_1 + pc_max_1) / 2).view(1, 3)
+                    scale_1 = (pc_max_1 - pc_min_1).max().reshape(1, 1) / 2
+            elif self.scale_mode == 'shapenet_v1_norm':
+                    pc_max_0, _ = pc_0[:,:3].max(dim=0, keepdim=True) # (1, 3)
+                    pc_min_0, _ = pc_0[:,:3].min(dim=0, keepdim=True) # (1, 3)
+                    shift_0 = ((pc_min_0 + pc_max_0) / 2).view(1, 3)
+                    scale_0 = torch.linalg.norm(pc_max_0 - pc_min_0).reshape(1, 1)
+                    pc_max_1, _ = pc_1[:,:3].max(dim=0, keepdim=True) # (1, 3)
+                    pc_min_1, _ = pc_1[:,:3].min(dim=0, keepdim=True) # (1, 3)
+                    shift_1 = ((pc_min_1 + pc_max_1) / 2).view(1, 3)
+                    scale_1 = torch.linalg.norm(pc_max_1 - pc_min_1).reshape(1, 1)            
+            else:
+                    shift_0 = torch.zeros([1, 3])
+                    scale_0 = torch.ones([1, 1])
+                    shift_1 = torch.zeros([1, 3])
+                    scale_1 = torch.ones([1, 1])
+                    
+            pc_0[:,:3] = (pc_0[:,:3] - shift_0) / scale_0
+            pc_1[:,:3] = (pc_1[:,:3] - shift_1) / scale_1
+            
+            clouds = torch.stack((pc_0, pc_1))
+            
+            # build text embedding
+            if lowercase_text:
+                if padding:
+                    if dataset=="gtp2s":
+                        text_embed_path = self.t2s_root / "text_embeds_chatgpt" / language_model / "lowercase" /  "padding" / f"{tensor_name}"
+                    else:
+                        text_embed_path = self.t2s_root / "text_embeds" / language_model / "lowercase" /  "padding" / f"{tensor_name}"
+                elif dataset=="gtp2s":
+                    text_embed_path = self.t2s_root / "text_embeds_chatgpt" / language_model / "lowercase" / f"{tensor_name}"
+                else:
+                    text_embed_path = self.t2s_root / "text_embeds" / language_model / "lowercase" / f"{tensor_name}"
+            else:
+                if padding:
+                    if dataset=="gtp2s":
+                        text_embed_path = self.t2s_root / "text_embeds_chatgpt" / language_model / "std" /  "padding" / f"{tensor_name}"
+                    text_embed_path = self.t2s_root / "text_embeds" / language_model / "std" /  "padding" / f"{tensor_name}"
+                elif dataset=="gtp2s":
+                    text_embed_path = self.t2s_root / "text_embeds_chatgpt" / language_model / "std" / f"{tensor_name}"
+                else:
+                    text_embed_path = self.t2s_root / "text_embeds" / language_model / "std" / f"{tensor_name}"
+            
+            if padding:
+                text_embed = torch.load(text_embed_path, map_location='cpu')
+            else:
+                text_embed = torch.load(text_embed_path, map_location='cpu')
+                if text_embed.shape[0] > max_length:
+                    count_trunc += 1
+                    text_embed = text_embed[:max_length]       # truncate to max_length => [max_length, 1024]
+                
+                
+            # build mask for this text embedding (i have text embeds length and max length)
+            #key_padding_mask_false = torch.zeros((1+text_embed.shape[0]), dtype=torch.bool)             # False => elements will be processed
+            #key_padding_mask_true = torch.ones((max_length - text_embed.shape[0]), dtype=torch.bool)    # True => elements will NOT be processed
+            #key_padding_mask = torch.cat((key_padding_mask_false, key_padding_mask_true), dim=0)
+
+
+            # pad to length to max_length_t2s
+            # add zeros at the end of text embed to reach max_length     
+            if not padding: #if the language model has not padded the embeddings, we have to do it by hand, to ensure correct batches in DataLoaders
+                pad = torch.zeros(max_length - text_embed.shape[0], text_embed.shape[1])
+                text_embed = torch.cat((text_embed, pad), dim=0)
+
+            
+            mean_text_embed = torch.mean(text_embed, dim=0)        
+        
+            self.data.append({
+                    "clouds": clouds,
+                    "mids": mids,
+                    "target": target,
+                    "text_embed": text_embed,
+                    "mean_text_embed": mean_text_embed,
+                    "text": text
+                    })
+            
+            #visualize_data_sample(clouds, target, str(text + f'_target={target}'), f"data_2__{idx}_.png", idx)   # RED:target, BLUE:distractor
+            
+        # Deterministically shuffle the dataset        
+        random.Random(2023).shuffle(self.data)
+        print(count_trunc ,' truncated text embeds')
+
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        data = {k:v.clone() if isinstance(v, torch.Tensor) else copy(v) for k, v in self.data[idx].items()}
+        data["idx"] = idx
+        if self.transform is not None:
+            data = self.transform(data)
+        
         return data
