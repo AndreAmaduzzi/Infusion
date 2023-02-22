@@ -610,20 +610,20 @@ class Text2Shape_humaneval(Dataset):
             # build text embedding
             if lowercase_text:
                 if padding:
-                    if dataset=="gtp2s":
+                    if dataset=="gpt2s":
                         text_embed_path = self.t2s_root / "text_embeds_chatgpt" / language_model / "lowercase" /  "padding" / f"{tensor_name}"
                     else:
                         text_embed_path = self.t2s_root / "text_embeds" / language_model / "lowercase" /  "padding" / f"{tensor_name}"
-                elif dataset=="gtp2s":
+                elif dataset=="gpt2s":
                     text_embed_path = self.t2s_root / "text_embeds_chatgpt" / language_model / "lowercase" / f"{tensor_name}"
                 else:
                     text_embed_path = self.t2s_root / "text_embeds" / language_model / "lowercase" / f"{tensor_name}"
             else:
                 if padding:
-                    if dataset=="gtp2s":
+                    if dataset=="gpt2s":
                         text_embed_path = self.t2s_root / "text_embeds_chatgpt" / language_model / "std" /  "padding" / f"{tensor_name}"
                     text_embed_path = self.t2s_root / "text_embeds" / language_model / "std" /  "padding" / f"{tensor_name}"
-                elif dataset=="gtp2s":
+                elif dataset=="gpt2s":
                     text_embed_path = self.t2s_root / "text_embeds_chatgpt" / language_model / "std" / f"{tensor_name}"
                 else:
                     text_embed_path = self.t2s_root / "text_embeds" / language_model / "std" / f"{tensor_name}"
@@ -643,7 +643,7 @@ class Text2Shape_humaneval(Dataset):
             #key_padding_mask = torch.cat((key_padding_mask_false, key_padding_mask_true), dim=0)
 
 
-            # pad to length to max_length_t2s
+            # pad length to max_length_t2s
             # add zeros at the end of text embed to reach max_length     
             if not padding: #if the language model has not padded the embeddings, we have to do it by hand, to ensure correct batches in DataLoaders
                 pad = torch.zeros(max_length - text_embed.shape[0], text_embed.shape[1])
