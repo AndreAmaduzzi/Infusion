@@ -212,7 +212,8 @@ class Text2Shape(Dataset):
                 if padding:
                     if chatgpt_prompts:
                         text_embed_path = self.root / "text_embeds_chatgpt" / language_model / "std" /  "padding" / f"{tensor_name}"
-                    text_embed_path = self.root / "text_embeds" / language_model / "std" /  "padding" / f"{tensor_name}"
+                    else:
+                        text_embed_path = self.root / "text_embeds" / language_model / "std" /  "padding" / f"{tensor_name}"
                 elif chatgpt_prompts:
                     text_embed_path = self.root / "text_embeds_chatgpt" / language_model / "std" / f"{tensor_name}"
                 else:
@@ -233,7 +234,7 @@ class Text2Shape(Dataset):
             #key_padding_mask = torch.cat((key_padding_mask_false, key_padding_mask_true), dim=0)
 
 
-            # pad to length to max_length_t2s
+            # pad ength to max_length_t2s
             # add zeros at the end of text embed to reach max_length     
             if not padding: #if the language model has not padded the embeddings, we have to do it by hand, to ensure correct batches in DataLoaders
                 pad = torch.zeros(max_length - text_embed.shape[0], text_embed.shape[1])
@@ -377,6 +378,7 @@ class Text2Shape_pairs(Text2Shape):
         scale_mode: str,
         shape_gt: str,
         shape_dist: str,
+        same_class_pairs: bool, # if True, each pair will have shapes from the same class (chair-chair or table-table)
         transforms: List[Callable] = []
     ) -> None:
     
@@ -386,17 +388,19 @@ class Text2Shape_pairs(Text2Shape):
         self.max_len = max_length
         self.shape_gt = shape_gt
         self.shape_dist = shape_dist
+        self.same_class_pairs = same_class_pairs
 
 
     def __getitem__(self, idx): # build pairs of clouds
         target_mid = self.pointclouds[idx]["model_id"]
+        target_cate = self.pointclouds[idx]["cate"]
         target_idx = idx
         dist_idx = idx
         dist_mid = target_mid
 
         if self.shape_gt is None:               # when shape_1 and shape_2 are None => we build pairs of GT T2S and random T2S
             assert self.shape_dist is None
-            while dist_mid == target_mid:       # we randomly sample a shape which is different from the current one (may also be a different class)
+            while dist_mid == target_mid or (self.same_class_pairs and target_cate!=self.pointclouds[dist_idx]["cate"]):       # we randomly sample a shape which is different from the current one, but belonging to the same class
                 dist_idx = random.randint(0, len(self.pointclouds)-1)
                 dist_mid = self.pointclouds[dist_idx]["model_id"]
             
@@ -443,6 +447,7 @@ class Text2Shape_pairs(Text2Shape):
             clouds = torch.stack((clouds[0], clouds[1]))
 
             class_labels = torch.Tensor()
+            cates = None
 
         mean_text_embed = self.pointclouds[target_idx]["text_embed"]
         
@@ -458,6 +463,7 @@ class Text2Shape_pairs(Text2Shape):
 
         data = {"clouds": clouds,
                 "mids": mids,
+                "cates": cates,
                 "target": target,
                 "mean_text_embed": mean_text_embed,
                 "text_embed": self.pointclouds[target_idx]["text_embed"],
@@ -465,10 +471,208 @@ class Text2Shape_pairs(Text2Shape):
                 "class_labels": class_labels,                              
                 "idx": target_idx}
         
-        #visualize_data_sample(clouds, target, str(text + f'_target={target}'), f"data_2_{self.split}_{idx}_{cates}.png", target_idx)   # RED:target, BLUE:distractor
+        #visualize_data_sample(clouds, target, str(text + f'_target={target}'), f"data_{self.split}_{idx}_{cates}.png", target_idx)   # RED:target, BLUE:distractor
 
         return data
+
+class Text2Shape_pairs_easy_hard(Dataset):
+    def __init__(
+            self,
+            root: Path,
+            chatgpt_prompts: bool,
+            split: str,
+            categories: str,
+            from_shapenet_v1: bool,
+            from_shapenet_v2: bool,
+            language_model: str,
+            lowercase_text: str,
+            max_length: int,
+            padding: bool,
+            scale_mode: str,
+            transforms: List[Callable] = []
+    ) -> None:
+        
+        '''
+        
+        Class implementing Dataset with pairs of shape (easy or hard), with text description.
+
+        '''
+
+        super().__init__()
+        print('Initializing dataset...')
+        self.root = root
+        self.split = split
+        self.categories = categories
+        self.scale_mode = scale_mode
+        self.lowercase = lowercase_text
+        self.transform = Compose(transforms)
+        self.chatgpt_prompts = chatgpt_prompts
+
+        if self.chatgpt_prompts:
+            annotations_path = self.root / "annotations" / "from_text2shape" / f"1e2h3r_{self.split}_{self.categories}_gpt2s.csv"
+        else:
+            annotations_path = self.root / "annotations" / "from_text2shape" / f"1e2h3r_{self.split}_{self.categories}_t2s.csv"
+
+        print('annotations path: ', annotations_path)
+        df = pd.read_csv(annotations_path, quotechar='"')   # cols: gt_id, dist_id, task, embed_dist, cate_gt, text, tensor
+        
+        count_trunc = 0
+        self.data = []
+        for idx, row in tqdm(df.iterrows(), total=len(df), desc="loading dataset"):
+            gt_id = row["gt_id"]
+            dist_id = row["dist_id"]
+            task = row["task"]
+            embed_dist = row["embed_dist"]
+            cate = row["cate_gt"]
+            text = row["text"]
+            tensor_name = row["tensor"]
+
+            # build pair of clouds
+            mids = [gt_id, dist_id]
+            target = 0
+            mids, target = shuffle_ids(mids, target)
+            # pick clouds by model_id, from desired location
+            if from_shapenet_v1:
+                model_path_0 = str(self.root / "shapes" / "shapenet_v1" / f"{mids[0]}.ply")
+                o3d_pcd = o3d.io.read_point_cloud(model_path_0)
+                pc_0 = get_tensor_pcd_from_o3d(o3d_pcd)
+                model_path_1 = str(self.root / "shapes" / "shapenet_v1" / f"{mids[1]}.ply")
+                o3d_pcd = o3d.io.read_point_cloud(model_path_1)
+                pc_1 = get_tensor_pcd_from_o3d(o3d_pcd)
+            elif from_shapenet_v2:
+                model_path_0 = str(self.root / "shapes" / "shapenet_v2" / f"{mids[0]}.ply")
+                o3d_pcd = o3d.io.read_point_cloud(model_path_0)
+                pc_0 = get_tensor_pcd_from_o3d(o3d_pcd)
+                model_path_1 = str(self.root / "shapes" / "shapenet_v2" / f"{mids[1]}.ply")
+                o3d_pcd = o3d.io.read_point_cloud(model_path_1)
+                pc_1 = get_tensor_pcd_from_o3d(o3d_pcd)
+            else:
+                model_path_0 = str(self.root / "shapes" / "text2shape_rgb" / f"{mids[0]}.ply")
+                o3d_pcd = o3d.io.read_point_cloud(model_path_0)
+                pc_0 = get_tensor_pcd_from_o3d(o3d_pcd)
+                model_path_1 = str(self.root / "shapes" / "text2shape_rgb" / f"{mids[1]}.ply")
+                o3d_pcd = o3d.io.read_point_cloud(model_path_1)
+                pc_1 = get_tensor_pcd_from_o3d(o3d_pcd)
+                        
+            # normalize clouds
+            if self.scale_mode == 'shape_unit':
+                    shift_0 = pc_0[:,:3].mean(dim=0).reshape(1, 3)
+                    scale_0 = pc_0[:,:3].flatten().std().reshape(1, 1)
+                    shift_1 = pc_1[:,:3].mean(dim=0).reshape(1, 3)
+                    scale_1 = pc_1[:,:3].flatten().std().reshape(1, 1)                    
+            elif self.scale_mode == 'shape_half':
+                    shift_0 = pc_0[:,:3].mean(dim=0).reshape(1, 3)
+                    scale_0 = pc_0[:,:3].flatten().std().reshape(1, 1) / (0.5)
+                    shift_1 = pc_1[:,:3].mean(dim=0).reshape(1, 3)
+                    scale_1 = pc_1[:,:3].flatten().std().reshape(1, 1) / (0.5)
+            elif self.scale_mode == 'shape_34':
+                    shift_0 = pc_0[:,:3].mean(dim=0).reshape(1, 3)
+                    scale_0 = pc_0[:,:3].flatten().std().reshape(1, 1) / (0.75)
+                    shift_1 = pc_1[:,:3].mean(dim=0).reshape(1, 3)
+                    scale_1 = pc_1[:,:3].flatten().std().reshape(1, 1) / (0.75)
+            elif self.scale_mode == 'shape_bbox':
+                    pc_max_0, _ = pc_0[:,:3].max(dim=0, keepdim=True) # (1, 3)
+                    pc_min_0, _ = pc_0[:,:3].min(dim=0, keepdim=True) # (1, 3)
+                    shift_0 = ((pc_min_0 + pc_max_0) / 2).view(1, 3)
+                    scale_0 = (pc_max_0 - pc_min_0).max().reshape(1, 1) / 2
+                    pc_max_1, _ = pc_1[:,:3].max(dim=0, keepdim=True) # (1, 3)
+                    pc_min_1, _ = pc_1[:,:3].min(dim=0, keepdim=True) # (1, 3)
+                    shift_1 = ((pc_min_1 + pc_max_1) / 2).view(1, 3)
+                    scale_1 = (pc_max_1 - pc_min_1).max().reshape(1, 1) / 2
+            elif self.scale_mode == 'shapenet_v1_norm':
+                    pc_max_0, _ = pc_0[:,:3].max(dim=0, keepdim=True) # (1, 3)
+                    pc_min_0, _ = pc_0[:,:3].min(dim=0, keepdim=True) # (1, 3)
+                    shift_0 = ((pc_min_0 + pc_max_0) / 2).view(1, 3)
+                    scale_0 = torch.linalg.norm(pc_max_0 - pc_min_0).reshape(1, 1)
+                    pc_max_1, _ = pc_1[:,:3].max(dim=0, keepdim=True) # (1, 3)
+                    pc_min_1, _ = pc_1[:,:3].min(dim=0, keepdim=True) # (1, 3)
+                    shift_1 = ((pc_min_1 + pc_max_1) / 2).view(1, 3)
+                    scale_1 = torch.linalg.norm(pc_max_1 - pc_min_1).reshape(1, 1)            
+            else:
+                    shift_0 = torch.zeros([1, 3])
+                    scale_0 = torch.ones([1, 1])
+                    shift_1 = torch.zeros([1, 3])
+                    scale_1 = torch.ones([1, 1])
+                    
+            pc_0[:,:3] = (pc_0[:,:3] - shift_0) / scale_0
+            pc_1[:,:3] = (pc_1[:,:3] - shift_1) / scale_1
+            
+            clouds = torch.stack((pc_0, pc_1))
+        
+            # build text embedding
+            if self.lowercase:
+                if padding:
+                    if chatgpt_prompts==True:
+                        text_embed_path = self.root / "text_embeds_chatgpt" / language_model / "lowercase" /  "padding" / f"{tensor_name}"
+                    else:
+                        text_embed_path = self.root / "text_embeds" / language_model / "lowercase" /  "padding" / f"{tensor_name}"
+                elif chatgpt_prompts==True:
+                    text_embed_path = self.root / "text_embeds_chatgpt" / language_model / "lowercase" / f"{tensor_name}"
+                else:
+                    text_embed_path = self.root / "text_embeds" / language_model / "lowercase" / f"{tensor_name}"
+            else:
+                if padding:
+                    if chatgpt_prompts==True:
+                        text_embed_path = self.root / "text_embeds_chatgpt" / language_model / "std" /  "padding" / f"{tensor_name}"
+                    text_embed_path = self.root / "text_embeds" / language_model / "std" /  "padding" / f"{tensor_name}"
+                elif chatgpt_prompts==True:
+                    text_embed_path = self.root / "text_embeds_chatgpt" / language_model / "std" / f"{tensor_name}"
+                else:
+                    text_embed_path = self.root / "text_embeds" / language_model / "std" / f"{tensor_name}"
+            
+            if padding:
+                text_embed = torch.load(text_embed_path, map_location='cpu')
+            else:
+                text_embed = torch.load(text_embed_path, map_location='cpu')
+                if text_embed.shape[0] > max_length:
+                    count_trunc += 1
+                    text_embed = text_embed[:max_length]       # truncate to max_length => [max_length, 1024]
+                
+                
+            # build mask for this text embedding (i have text embeds length and max length)
+            #key_padding_mask_false = torch.zeros((1+text_embed.shape[0]), dtype=torch.bool)             # False => elements will be processed
+            #key_padding_mask_true = torch.ones((max_length - text_embed.shape[0]), dtype=torch.bool)    # True => elements will NOT be processed
+            #key_padding_mask = torch.cat((key_padding_mask_false, key_padding_mask_true), dim=0)
+
+
+            # pad length to max_length_t2s
+            # add zeros at the end of text embed to reach max_length     
+            if not padding: #if the language model has not padded the embeddings, we have to do it by hand, to ensure correct batches in DataLoaders
+                pad = torch.zeros(max_length - text_embed.shape[0], text_embed.shape[1])
+                text_embed = torch.cat((text_embed, pad), dim=0)
+
+
+            # define text
+            text = row["text"]
+
+            self.data.append({
+                    "clouds": clouds,
+                    "mids": mids,
+                    "target": target,
+                    "text_embed": text_embed,
+                    "text": text,
+                    "task": task,
+                    "embed_dist": embed_dist,
+                    "cate": cate
+                    })
+            
+            #visualize_data_sample(clouds, target, str(text + f'_target={target}'), f"data_2_{idx}_.png", idx)   # RED:target, BLUE:distractor
+            
+        # Deterministically shuffle the dataset        
+        random.Random(2023).shuffle(self.data)
+        print(count_trunc ,' truncated text embeds')
     
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        data = {k:v.clone() if isinstance(v, torch.Tensor) else copy(v) for k, v in self.data[idx].items()}
+        data["idx"] = idx
+        if self.transform is not None:
+            data = self.transform(data)
+        
+        return data
+
 class Text2Shape_humaneval(Dataset):
     '''
     
@@ -503,7 +707,6 @@ class Text2Shape_humaneval(Dataset):
         with open(json_path, 'r') as f:
             json_data = json.load(f)
         
-        #TODO: implement categories choice: if "chair" => pick only pairs with 2 chairs
         if categories != "all":
             # build list of model_ids with this shape
             cate_mids = []
