@@ -13,5 +13,8 @@ Install all the dependencies
 pip install -r requirements.txt
 ```
 
+# Architecture
+## Higher-resolution architecture
+## Lower-resolution architecture
 ## Training
 ## Inference
