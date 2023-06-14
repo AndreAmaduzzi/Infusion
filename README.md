@@ -1,4 +1,4 @@
-# Text-driven Shape generation with Diffusion Models
+# Text-driven Shape generation with Denoising Diffusion Models
 ## Installation
 Python 3.8 is required.
 
