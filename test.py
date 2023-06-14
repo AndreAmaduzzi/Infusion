@@ -8,7 +8,7 @@ from collections import OrderedDict
 import random
 import torch
 from torch import nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.tensorboard import SummaryWriter
 from utils.misc import *
@@ -239,7 +239,7 @@ def main():
 
     with torch.no_grad():
         print('Loading model ', opt.model)
-        resumed_param = torch.load(opt.model)
+        resumed_param = torch.load(opt.model, map_location=f'cuda:{opt.gpu}')
         weights_dict = resumed_param['model_state']
 
         if opt.distribution_type == 'single':
@@ -306,6 +306,7 @@ def parse_args():
 
 
     # path to checkpt of trained model and PVD model
+    parser.add_argument('--model', default='./exps/small_500_fp16_chatgpt/epoch_99.pth', help="path to model (to continue training)")
     parser.add_argument('--maxlen_pad', action='store_true')
     parser.add_argument('--chatgpt_prompts', action='store_true')
 
@@ -324,7 +325,7 @@ def parse_args():
                              'multi node data parallel training')
     parser.add_argument('--rank', default=0, type=int,
                         help='node rank for distributed training')
-    parser.add_argument('--gpu', default=1, type=int,
+    parser.add_argument('--gpu', default=3, type=int,
                         help='GPU id to use. None means using all available GPUs.')
 
     # evaluation params
