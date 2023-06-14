@@ -48,6 +48,9 @@ def visualize_data_sample(pointclouds, target, img_title, path, idx):
     ncols = n_clouds
     nrows = 1
     for idx, pc in enumerate(pointclouds):
+        #if pc.shape[1]==6:
+        #    colour = pc[:, 3:]
+        #else:
         colour = 'r' if target == idx else 'b'
         pc = pc.cpu().numpy()
         ax = fig.add_subplot(nrows, ncols, idx + 1, projection='3d')
@@ -56,6 +59,32 @@ def visualize_data_sample(pointclouds, target, img_title, path, idx):
         ax.axis('off')
     plt.savefig(path)
     plt.close(fig)
+
+def visualize_data_sample_color(target_mid, dist_mid, img_title, path, idx):
+    fig = plt.figure(figsize=(20,20))
+    plt.title(label=img_title, fontsize=25)
+    plt.axis('off')
+    nrows = 1
+    # plot target
+    ax = fig.add_subplot(nrows, 2, 1)
+    ax.axis('off')
+    img_path = os.path.join('/media/data2/aamaduzzi/datasets/Text2Shape/nrrd_256_filter_div_128_solid/', target_mid, target_mid + '.png')
+    img = plt.imread(img_path)
+    
+    ax.imshow(img)
+
+    # plot dist
+    ax = fig.add_subplot(nrows, 2, 2)
+    ax.axis('off')
+    img_path = os.path.join('/media/data2/aamaduzzi/datasets/Text2Shape/nrrd_256_filter_div_128_solid/', dist_mid, dist_mid + '.png')
+    img = plt.imread(img_path)
+    ax.imshow(img)
+
+    plt.savefig(path)
+    plt.close(fig)
+
+
+
 
 class Text2Shape(Dataset):
     def __init__(
@@ -509,9 +538,9 @@ class Text2Shape_pairs_easy_hard(Dataset):
         self.chatgpt_prompts = chatgpt_prompts
 
         if self.chatgpt_prompts:
-            annotations_path = self.root / "annotations" / "from_text2shape" / f"1e2h3r_{self.split}_{self.categories}_gpt2s.csv"
+            annotations_path = self.root / "annotations" / "from_text2shape" / f"1e2h_{self.split}_{self.categories}_gpt2s.csv"
         else:
-            annotations_path = self.root / "annotations" / "from_text2shape" / f"1e2h3r_{self.split}_{self.categories}_t2s.csv"
+            annotations_path = self.root / "annotations" / "from_text2shape" / f"1e2h_{self.split}_{self.categories}_t2s.csv"
 
         print('annotations path: ', annotations_path)
         df = pd.read_csv(annotations_path, quotechar='"')   # cols: gt_id, dist_id, task, embed_dist, cate_gt, text, tensor
@@ -737,6 +766,7 @@ class Text2Shape_humaneval(Dataset):
             text = d["text"]
             dataset = d["dataset"]
             tensor_name = d["tensor_name"]
+            task = d["task"]
             
             # build pair of clouds
             mids = [gt_id, dist_id]
@@ -861,7 +891,8 @@ class Text2Shape_humaneval(Dataset):
                     "target": target,
                     "text_embed": text_embed,
                     "mean_text_embed": mean_text_embed,
-                    "text": text
+                    "text": text,
+                    "dataset": dataset
                     })
             
             #visualize_data_sample(clouds, target, str(text + f'_target={target}'), f"data_2__{idx}_.png", idx)   # RED:target, BLUE:distractor
