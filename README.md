@@ -20,7 +20,9 @@ In order to generate shapes directly from text, two conditional schemes have bee
 * Concatenation of text features with point cloud features
 * Cross-attention between text feature and point cloud features.
 
-The overall architecture is shown in the figure below.
+The architecture of the trainable network, which learns to estimate the noise applied to an input source, is shown in  the figure below.
+![infusion](github_figs/full_infusion.drawio.png "")
+
 
 ### Concatenation
 
