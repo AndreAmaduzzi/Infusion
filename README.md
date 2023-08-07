@@ -15,13 +15,20 @@ pip install -r requirements.txt
 ```
 
 ### Architecture
-The architecture of this project is inspired by [PVD](https://arxiv.org/pdf/2104.03670.pdf), a method for unconditional point cloud generation. 
-In order to generate shapes directly from text, two conditional schemes have been implemented and evaluated:
-* Concatenation of text features with point cloud features
-* Cross-attention between text feature and point cloud features.
+The architecture of this project is inspired by [PVD](https://arxiv.org/pdf/2104.03670.pdf), a method for unconditional point cloud generation.
+The following figure, taken from this method summarizes the diffusion process, which allows to generate a point cloud from random noise.
+![diffusion](github_figs/diffusion.png )
 
-The architecture of the trainable network, which learns to estimate the noise applied to an input source, is shown in  the figure below.
-![infusion](github_figs/full_infusion.drawio.png "")
+The architecture of the trainable network which learns to estimate the noise applied to an input source, is shown in  the figure below.
+![infusion](github_figs/full_infusion.drawio.png)
+
+
+In order to generate shapes directly from text, two conditional schemes have been implemented and evaluated:
+* **Concatenation** of text features with point cloud features
+* **Cross-attention** between text and point cloud features
+The text-conditioning methods are implemented inside the PVConv layers of PVD, as shown in the figures below.
+![concatenation](github_figs/concatenation.png)
+![cross-attention](github_figs/cross-attention.png)
 
 
 ### Concatenation
