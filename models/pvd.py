@@ -234,10 +234,13 @@ class GaussianDiffusion:
 
         assert isinstance(shape, (tuple, list))
         img_t = noise_fn(size=shape, dtype=torch.float, device=device)
+        print('initial noise range: ', torch.min(img_t), torch.max(img_t))
         for t in reversed(range(0, self.num_timesteps if not keep_running else len(self.betas))):
             t_ = torch.empty(shape[0], dtype=torch.int64, device=device).fill_(t)
             img_t = self.p_sample(denoise_fn=denoise_fn, data=img_t,t=t_, noise_fn=noise_fn, condition=condition,
                                   clip_denoised=clip_denoised, return_pred_xstart=False)
+            if t%10 == 0:
+                print('t: ', torch.min(img_t), torch.max(img_t))
 
         assert img_t.shape == shape
         return img_t
