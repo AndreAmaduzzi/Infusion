@@ -15,9 +15,12 @@ pip install -r requirements.txt
 ```
 
 ### Architecture
-The architecture of this project is inspired by [PVD](https://arxiv.org/pdf/2104.03670.pdf), a method for unconditional point cloud generation. In order to generate shapes directly from text, two conditional schemes have been implemented and evaluated:
+The architecture of this project is inspired by [PVD](https://arxiv.org/pdf/2104.03670.pdf), a method for unconditional point cloud generation. 
+In order to generate shapes directly from text, two conditional schemes have been implemented and evaluated:
 * Concatenation of text features with point cloud features
 * Cross-attention between text feature and point cloud features.
+
+The overall architecture is shown in the figure below.
 
 ### Concatenation
 
