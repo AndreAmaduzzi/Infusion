@@ -27,13 +27,13 @@ In order to generate shapes directly from text, two conditional schemes have bee
 * **Concatenation** of text features with point cloud features
 * **Cross-attention** between text and point cloud features
 The text-conditioning methods are implemented inside the PVConv layers of PVD, as shown in the figures below.
-![concatenation](github_figs/concatenation.png)
-![cross-attention](github_figs/cross-attention.png)
 
 
 ### Concatenation
+![concatenation](github_figs/concatenation.png)
 
 ### Cross-Attention
+![cross-attention](github_figs/cross-attention.png)
 
 ### Extra: lower resolution architecture
 In addition, we have explored the possibility to reduce the resolution of the original architecture, in order to speed up training and test. 
