@@ -74,6 +74,11 @@ class GaussianDiffusion:
         self.posterior_mean_coef2 = (1. - alphas_cumprod_prev) * torch.sqrt(alphas) / (1. - alphas_cumprod)
         self.eps_scale = self.betas / self.sqrt_one_minus_alphas_cumprod
 
+        '''
+        #DDIM PARAMETERS
+        self.ddim_timesteps = self.make_ddim_timesteps(ddim_discr_method="uniform", num_ddim_timesteps=ddim_num_steps,
+                                                  num_ddpm_timesteps=self.ddpm_num_timesteps,verbose=verbose)
+        '''
     @staticmethod
     def _extract(a, t, x_shape):
         """
@@ -85,8 +90,6 @@ class GaussianDiffusion:
         out = torch.gather(a, 0, t)
         assert out.shape == torch.Size([bs])
         return torch.reshape(out, [bs] + ((len(x_shape) - 1) * [1]))
-
-
 
     def q_mean_variance(self, x_start, t):
         mean = self._extract(self.sqrt_alphas_cumprod.to(x_start.device), t, x_start.shape) * x_start
@@ -124,8 +127,9 @@ class GaussianDiffusion:
 
     def p_mean_variance(self, denoise_fn, data, t, clip_denoised: bool, return_pred_xstart: bool, condition=None, epoch=0, save_matrices=False,):
 
+        # data = x_t
         if condition is not None:
-            model_output = denoise_fn(data, t, condition, epoch=epoch, save_matrices=save_matrices)
+            model_output = denoise_fn(data, t, condition, epoch=epoch, save_matrices=save_matrices)     # this is eps_theta
         else:
             raise Exception('condition is None')
 
@@ -184,6 +188,41 @@ class GaussianDiffusion:
         assert sample.shape == pred_xstart.shape
         return (sample, pred_xstart) if return_pred_xstart else sample
 
+    
+    ## DDIM sampling from https://github.com/CompVis/latent-diffusion
+    @torch.no_grad()
+    def p_sample_ddim(self, denoise_fn, data, t, noise_fn, clip_denoised=False, return_pred_xstart=False, condition=None, epoch=0, save_matrices=False):
+    #(self, x, c, t, index, repeat_noise=False, use_original_steps=False, quantize_denoised=False, temperature=1., noise_dropout=0., score_corrector=None, corrector_kwargs=None, unconditional_guidance_scale=1., unconditional_conditioning=None):
+        # data = x_t
+        if condition is not None:
+            e_t = denoise_fn(data, t, condition, epoch=epoch, save_matrices=save_matrices)     # eps_theta
+        else:
+            raise Exception('condition is None')
+
+        b, *_, device = *x.shape, x.device
+
+
+        alphas = self.model.alphas_cumprod if use_original_steps else self.ddim_alphas
+        alphas_prev = self.model.alphas_cumprod_prev if use_original_steps else self.ddim_alphas_prev
+        sqrt_one_minus_alphas = self.model.sqrt_one_minus_alphas_cumprod if use_original_steps else self.ddim_sqrt_one_minus_alphas
+        sigmas = self.model.ddim_sigmas_for_original_num_steps if use_original_steps else self.ddim_sigmas
+        # select parameters corresponding to the currently considered timestep
+        a_t = torch.full((b, 1, 1, 1), alphas[index], device=device)
+        a_prev = torch.full((b, 1, 1, 1), alphas_prev[index], device=device)
+        sigma_t = torch.full((b, 1, 1, 1), sigmas[index], device=device)
+        sqrt_one_minus_at = torch.full((b, 1, 1, 1), sqrt_one_minus_alphas[index],device=device)
+
+        # current prediction for x_0
+        pred_x0 = (x - sqrt_one_minus_at * e_t) / a_t.sqrt()
+        if quantize_denoised:
+            pred_x0, _, *_ = self.model.first_stage_model.quantize(pred_x0)
+        # direction pointing to x_t
+        dir_xt = (1. - a_prev - sigma_t**2).sqrt() * e_t
+        noise = sigma_t * noise_like(x.shape, device, repeat_noise) * temperature
+        if noise_dropout > 0.:
+            noise = torch.nn.functional.dropout(noise, p=noise_dropout)
+        x_prev = a_prev.sqrt() * pred_x0 + dir_xt + noise
+        return x_prev, pred_x0
 
     def p_sample_loop(self, denoise_fn, shape, device, condition=None,
                       noise_fn=torch.randn, clip_denoised=True, keep_running=False):
