@@ -21,7 +21,7 @@ The following figure, taken from this method summarizes the diffusion process, w
 
 The architecture of the trainable network which learns to estimate the noise applied to an input source, is shown in  the figure below.
 ![infusion](github_figs/full_infusion.drawio.png)
-
+The model receives as input the _noisy point cloud_, its corresponding time step _t_ and the _text_ describing the point cloud. The text prompt is processed by the Encoder Model of the large language model [T5](https://arxiv.org/pdf/1910.10683.pdf), which computes a text embedding. This text embedding is provided as input to the PVConv layers to predict the noise, conditioned on text.
 
 In order to generate shapes directly from text, two conditional schemes have been implemented and evaluated:
 * **Concatenation** of text features with point cloud features
@@ -30,10 +30,28 @@ The text-conditioning methods are implemented inside the PVConv layers of PVD, a
 
 
 ### Concatenation
-![concatenation](github_figs/concatenation.png)
+The table below summarizes the architecture of PVConv (3 layers) in the concatenation text-conditioning scheme.
+| PVConv x 3                   |
+|------------------------------|
+| Input: (x, t, text_embed)    |
+| **Concat(X, t, text_embed)**       |
+| 3x3x3 Conv, GroupNorm, Swish |
+| Dropout                      |
+| 3x3x3 Conv, GroupNorm, Swish |
+| SelfAttention                |
 
 ### Cross-Attention
-![cross-attention](github_figs/cross-attention.png)
+The table below summarizes the architecture of PVConv (3 layers) in the cross-attention text-conditioning scheme.
+| PVConv x 3                   |
+|------------------------------|
+| Input: (x, t, text_embed)    |
+| Concat(X, t)                  |
+| 3x3x3 Conv, GroupNorm, Swish |
+| Dropout                      |
+| 3x3x3 Conv, GroupNorm, Swish |
+| SelfAttention                |
+| **CrossAttention(text_embed)**|
+| **FeedForward**              |
 
 ### Extra: lower resolution architecture
 In addition, we have explored the possibility to reduce the resolution of the original architecture, in order to speed up training and test. 
