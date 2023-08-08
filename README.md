@@ -53,11 +53,6 @@ The table below summarizes the architecture of PVConv (3 layers) in the cross-at
 | **CrossAttention(text_embed)**|
 | **FeedForward**              |
 
-### Extra: lower resolution architecture
-In addition, we have explored the possibility to reduce the resolution of the original architecture, in order to speed up training and test. 
-The **original resolution** architecture we propose shares the same backbone of the original PVD method. The table below summarizes all the layers composing this model.
-With the aim of reducing the training and inference time, we have reduced the resolution of the original model. In doing so, we have been able to reduce the computation time by a factor of <> during training and inference, without empairing significantly the quality of the generated output.
-The table below shows the layers and parameters of this smaller architecture.
 
 ### Data
 This model has been trained on [Text2Shape](http://text2shape.stanford.edu/), the only existing dataset with paired 3D shapes and textual descriptions. Such dataset is limited to the chair and table categories of ShapeNet. Text2Shape provides a total of 75k shape-text pairs, referred to 15032 distint 3D shapes.
@@ -72,4 +67,4 @@ python train.py
 
 ### Experimental results
 
-### Qualitative examples
+### Qualitative results
