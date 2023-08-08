@@ -68,3 +68,9 @@ python train.py
 ### Experimental results
 
 ### Qualitative results
+The table below shows some quantative results of the text-driven generation process.
+| text            | cross-attention             | concatenation              |
+|-----------------|-----------------------------|----------------------------|
+| "a sofa chair"  | ![gif_cross](github_figs/gif_cross.gif) | ![gif_concat](github_figs/gif_concat.gif) |
+| "a round table" | ![gif_cross](github_figs/gif_cross.gif)  | ![gif_concat](github_figs/gif_concat.gif)  |
+
