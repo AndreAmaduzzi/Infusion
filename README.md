@@ -1,6 +1,5 @@
-# Project for Natural Language Processing course
-## Text-driven Shape generation with Denoising Diffusion Models
-### Installation
+# Project for Natural Language Processing course: Text-driven Shape generation with Denoising Diffusion Models
+## Installation
 Python 3.8 is required.
 
 Create and activate a virtual environment
@@ -14,7 +13,7 @@ Install all the dependencies
 pip install -r requirements.txt
 ```
 
-### Architecture
+## Architecture
 The architecture of this project is inspired by [PVD](https://arxiv.org/pdf/2104.03670.pdf), a method for unconditional point cloud generation.
 The following figure, taken from this method summarizes the diffusion process, which allows to generate a point cloud from random noise.
 ![diffusion](github_figs/diffusion.png )
@@ -54,11 +53,11 @@ The table below summarizes the architecture of PVConv (3 layers) in the cross-at
 | **FeedForward**              |
 
 
-### Data
+## Data
 This model has been trained on [Text2Shape](http://text2shape.stanford.edu/), the only existing dataset with paired 3D shapes and textual descriptions. Such dataset is limited to the chair and table categories of ShapeNet. Text2Shape provides a total of 75k shape-text pairs, referred to 15032 distint 3D shapes.
 
 
-### Training
+## Training
 For the concatenation scheme:
 ```shell
 python train.py --half_resolution --use_concat
@@ -69,8 +68,12 @@ For the cross-attention scheme:
 python train.py --half_resolution
 ```
 
-### Testing
-For the concatenation scheme:
+## Testing
+When testing the trained models, we compute the metrics reported in [PVD](https://arxiv.org/pdf/2104.03670.pdf):
+* MMD-CD: Minimum Matching Distance (using Chamfer Distance)
+* COV-CD: Coverage (using Chamfer Distance)
+* JSD: Jensen-Shannon Divergence
+
 For the concatenation scheme:
 ```shell
 python test.py --half_resolution --use_concat --model path/to/your/model.pth --eval_dir path/to/output/directory
@@ -81,7 +84,13 @@ For the cross-attention scheme:
 python train.py --half_resolution --model path/to/your/model.pth --eval_dir path/to/output/directory
 ```
 
-### Experimental results
+## Experimental results
+
+### Quantitative results
+|method         |MMD-CD &darr   |COV-CD &uarr         |JSD &darr            |
+|---------------|---------------|---------------------|---------------------|
+|concatenation  |xxx %          |xxx %          |xxx %          |
+|cross-attention|xxx %          |xxx %          |xxx %          |
 
 ### Qualitative results
 The table below shows some quantative results of the text-driven generation process.
