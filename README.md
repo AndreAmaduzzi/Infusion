@@ -1,4 +1,4 @@
-# Project for Natural Language Processing course: Text-driven Shape generation with Denoising Diffusion Models
+# Project for Natural Language Processing course: <br /> Text-driven Shape generation with Denoising Diffusion Models
 ## Installation
 Python 3.8 is required.
 
