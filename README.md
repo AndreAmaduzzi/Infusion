@@ -87,7 +87,7 @@ python train.py --half_resolution --model path/to/your/model.pth --eval_dir path
 ## Experimental results
 
 ### Quantitative results
-|method         |MMD-CD &darr   |COV-CD &uarr         |JSD &darr            |
+|method         |MMD-CD &darr;   |COV-CD &uarr;         |JSD &darr;            |
 |---------------|---------------|---------------------|---------------------|
 |concatenation  |xxx %          |xxx %          |xxx %          |
 |cross-attention|xxx %          |xxx %          |xxx %          |
