@@ -69,7 +69,17 @@ For the cross-attention scheme:
 python train.py --half_resolution
 ```
 
-### Inference
+### Testing
+For the concatenation scheme:
+For the concatenation scheme:
+```shell
+python test.py --half_resolution --use_concat --model path/to/your/model.pth --eval_dir path/to/output/directory
+```
+
+For the cross-attention scheme:
+```shell
+python train.py --half_resolution --model path/to/your/model.pth --eval_dir path/to/output/directory
+```
 
 ### Experimental results
 
