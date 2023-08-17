@@ -96,6 +96,6 @@ python test.py --half_resolution --model path/to/your/model.pth --eval_dir path/
 The table below shows some quantative results of the text-driven generation process.
 | text            | cross-attention             | concatenation              |
 |-----------------|-----------------------------|----------------------------|
-| "a sofa chair"  | <img src="github_figs/gif_cross.gif" alt="alt text" width=150> | <img src="github_figs/gif_concat.gif" alt="alt text" width=150> |
+| "a sofa chair"  | <img src="github_figs/A brown armchair that could seat a medium sized person.0001-0100.gif" alt="alt text" width=150> | <img src="github_figs/gif_concat.gif" alt="alt text" width=150> |
 | "a round table" | <img src="github_figs/gif_cross.gif" alt="alt text" width=150>  | <img src="github_figs/gif_concat.gif" alt="alt text" width=150>  |
 
