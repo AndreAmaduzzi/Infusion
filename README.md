@@ -59,6 +59,12 @@ This model has been trained on [Text2Shape](http://text2shape.stanford.edu/), th
 
 
 ### Training
+For the concatenation scheme:
+```shell
+python train.py --use_concat
+```
+
+For the cross-attention scheme:
 ```shell
 python train.py
 ```
