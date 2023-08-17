@@ -61,12 +61,12 @@ This model has been trained on [Text2Shape](http://text2shape.stanford.edu/), th
 ### Training
 For the concatenation scheme:
 ```shell
-python train.py --use_concat
+python train.py --half_resolution --use_concat
 ```
 
 For the cross-attention scheme:
 ```shell
-python train.py
+python train.py --half_resolution
 ```
 
 ### Inference
