@@ -166,14 +166,16 @@ def visualize_shape_grids(model,
                         val_dl, 
                         output_dir, 
                         epoch, 
-                        logger):
+                        logger,
+                        concat=False,
+                        context_dim=77):
 
     with torch.no_grad():       
         text_embed_train = train_batch["text_embed"].cuda()
         text_embed_train = maxlen_padding(text_embed_train)
         x_train = train_batch["pointcloud"].transpose(1,2).cuda() 
-        x_gen_eval = model.get_clouds(text_embed_train, x_train).detach().cpu()
-        x_gen_list = model.get_cloud_traj(text_embed_train[0].unsqueeze(0), x_train)
+        x_gen_eval = model.get_clouds(text_embed_train, x_train, concat=concat, context_dim=context_dim).detach().cpu()
+        x_gen_list = model.get_cloud_traj(text_embed_train[0].unsqueeze(0), x_train, concat=concat, context_dim=context_dim)
         x_gen_all = torch.cat(x_gen_list, dim=0).detach().cpu()
 
         gen_stats = [x_gen_eval.mean(), x_gen_eval.std()]
