@@ -389,26 +389,11 @@ class GaussianDiffusion:
             return total_bpd_b.mean(), vals_bt_.mean(), prior_bpd_b.mean(), mse_bt_.mean()
 
 class PVCNN2(PVCNN2Base):
-    
-    sa_blocks = [                                                   # PVConv                                        # PointNetSAModule
-        ((32, 2, 64), (1024, 0.1, 32, (32, 64))),  # ((out_channels, num_blocks, voxel_resolution), (num_centers, radius, num_neighbors, out_channels),
-        ((64, 3, 32), (256, 0.2, 32, (64, 128))),
-        ((128, 3, 16), (64, 0.4, 32, (128, 256))),
-        (None, (16, 0.8, 32, (256, 256, 512))),
-    ]   
-    fp_blocks = [                #  PointNetFPModule                # PVConv  
-        ((256, 256), (256, 3, 16)), # (out_channels), (out_channels, num_blocks, voxel_resolution)
-        ((256, 256), (256, 3, 16)),
-        ((256, 128), (128, 2, 32)),
-        ((128, 128, 64), (64, 2, 64)),
-    ]
-
-    def __init__(self, num_classes, embed_dim, use_att,dropout, extra_feature_channels=3, width_multiplier=1,
+    def __init__(self, num_classes, embed_dim, use_att, concat, context_dim, dropout, extra_feature_channels=3, half_resolution=False, width_multiplier=1,
                  voxel_resolution_multiplier=1):
         super().__init__(
-            num_classes=num_classes, embed_dim=embed_dim, use_att=use_att,
-            dropout=dropout, extra_feature_channels=extra_feature_channels,
-            width_multiplier=width_multiplier, voxel_resolution_multiplier=voxel_resolution_multiplier
+            dropout=dropout, extra_feature_channels=extra_feature_channels, 
+            half_resolution=half_resolution, width_multiplier=width_multiplier, 
         )
 
 class PVD(nn.Module):
@@ -417,7 +402,7 @@ class PVD(nn.Module):
         self.diffusion = GaussianDiffusion(betas, loss_type, model_mean_type, model_var_type)
 
         self.model = PVCNN2(num_classes=args.nc, embed_dim=args.embed_dim, use_att=args.attention,
-                            dropout=args.dropout, extra_feature_channels=0)
+                            dropout=args.dropout, extra_feature_channels=0, half_resolution=args.half_resolution)
 
     def prior_kl(self, x0):
         return self.diffusion._prior_bpd(x0)
