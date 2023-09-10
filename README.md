@@ -89,8 +89,8 @@ python test.py --half_resolution --model path/to/your/model.pth --eval_dir path/
 ### Quantitative results
 |**method**         |**MMD-CD &darr;**   |**COV-CD &uarr;**         |**JSD &darr;**            |
 |---------------|---------------|---------------------|---------------------|
-|concatenation  |xxx %          |xxx %          |xxx %          |
-|cross-attention|xxx %          |xxx %          |xxx %          |
+|concatenation  |0.0941           |2.50 %          |0.965          |
+|cross-attention|0.00154          |50.91 %          |0.0283         |
 
 ### Qualitative results
 The table below shows some quantative results of the text-driven generation process.
