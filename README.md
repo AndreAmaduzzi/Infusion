@@ -96,9 +96,9 @@ python test.py --half_resolution --model path/to/your/model.pth --eval_dir path/
 The table below shows some qualitative results of the text-driven generation process.
 | text            | cross-attention             | concatenation              |
 |-----------------|-----------------------------|----------------------------|
-| "a sofa chair"  | <img src="github_figs/A brown armchair that could seat a medium sized person.0001-0100.gif" alt="alt text" width=150> | <img src="github_figs/gif_concat.gif" alt="alt text" width=150> |
-| "a round table" | <img src="github_figs/A brown armchair that could seat a medium sized person.0001-0100.gif" alt="alt text" width=150>  | <img src="github_figs/gif_concat.gif" alt="alt text" width=150>  |
-| "a long rectangular table" | <img src="github_figs/A brown armchair that could seat a medium sized person.0001-0100.gif" alt="alt text" width=150>  | <img src="github_figs/gif_concat.gif" alt="alt text" width=150>  |
+| "a sofa chair"  | <img src="github_figs/crossattn_sofa0001-0400.gif" alt="alt text" width=150> | <img src="github_figs/crossattn_sofa0001-0400.gif" alt="alt text" width=150> |
+| "a round table" | <img src="github_figs/crossattn_sofa0001-0400.gif" alt="alt text" width=150>  | <img src="github_figs/crossattn_sofa0001-0400.gif" alt="alt text" width=150>  |
+| "a long rectangular table" | <img src="github_figs/crossattn_sofa0001-0400.gif" alt="alt text" width=150>  | <img src="github_figs/crossattn_sofa0001-0400.gif" alt="alt text" width=150>  |
 
 ## Conclusion
 The quantitative and qualitative results reported show that the text-conditioning scheme based on cross-attention is much more effective than concatenation. Indeed, cross-attention allows the generation of 3D shapes which are coherent with the input text, since they contain the main geometric and appearance details specified in the text. On the other hand, the concatenation scheme is not able to inject into the 3D generation process the features described in the text, resulting in 3D shapes which are not various and related to the input textual description.
