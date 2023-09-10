@@ -86,7 +86,7 @@ def create_pointnet_components(blocks, in_channels, embed_dim, with_se=False, no
     return layers, in_channels, concat_channels
 
 
-def create_pointnet2_sa_components(sa_blocks, extra_feature_channels, embed_dim=64, use_att=False,
+def create_pointnet2_sa_components(sa_blocks, extra_feature_channels, embed_dim=64, use_att=False, concat=False, context_dim=77,
                                    dropout=0.1, with_se=False, normalize=True, eps=0,
                                    width_multiplier=1, voxel_resolution_multiplier=1):
     r, vr = width_multiplier, voxel_resolution_multiplier
@@ -108,14 +108,18 @@ def create_pointnet2_sa_components(sa_blocks, extra_feature_channels, embed_dim=
                     block = SharedMLP
                 else:
                     block = functools.partial(PVConv, kernel_size=3, resolution=int(vr * voxel_resolution), attention=attention,
-                                              dropout=dropout,
+                                              concat=concat, dropout=dropout,
                                               with_se=with_se, with_se_relu=True,
                                               normalize=normalize, eps=eps)
 
                 if c == 0:
                     sa_blocks.append(block(in_channels, out_channels))              # here, we specify in and out channels for each PVConv
                 elif k ==0:
-                    sa_blocks.append(block(in_channels+embed_dim, out_channels))    # here, we specify in and out channels for each PVConv
+                    if concat:
+                        in_channels = in_channels + context_dim + embed_dim
+                    else:
+                        in_channels = in_channels + embed_dim
+                    sa_blocks.append(block(in_channels, out_channels))    # here, we specify in and out channels for each PVConv
                 in_channels = out_channels
                 k += 1
             extra_feature_channels = in_channels
@@ -132,7 +136,7 @@ def create_pointnet2_sa_components(sa_blocks, extra_feature_channels, embed_dim=
         else:
             block = functools.partial(PointNetSAModule, num_centers=num_centers, radius=radius,
                                       num_neighbors=num_neighbors)
-        sa_blocks.append(block(in_channels=extra_feature_channels+(embed_dim if k==0 else 0 ), out_channels=out_channels,
+        sa_blocks.append(block(in_channels=extra_feature_channels+(embed_dim if k==0 else 0 )+(context_dim if k==0 and concat==True else 0), out_channels=out_channels,
                                include_coordinates=True))
         c += 1
         in_channels = extra_feature_channels = sa_blocks[-1].out_channels
@@ -144,7 +148,7 @@ def create_pointnet2_sa_components(sa_blocks, extra_feature_channels, embed_dim=
     return sa_layers, sa_in_channels, in_channels, 1 if num_centers is None else num_centers
 
 
-def create_pointnet2_fp_modules(fp_blocks, in_channels, sa_in_channels, embed_dim=64, use_att=False,
+def create_pointnet2_fp_modules(fp_blocks, in_channels, sa_in_channels, embed_dim=64, use_att=False, concat=False, context_dim=77,
                                 dropout=0.1,
                                 with_se=False, normalize=True, eps=0,
                                 width_multiplier=1, voxel_resolution_multiplier=1):
@@ -157,6 +161,7 @@ def create_pointnet2_fp_modules(fp_blocks, in_channels, sa_in_channels, embed_di
         out_channels = tuple(int(r * oc) for oc in fp_configs)
         fp_blocks.append(
             PointNetFPModule(in_channels=in_channels + sa_in_channels[-1 - fp_idx] + embed_dim, out_channels=out_channels)
+            #PointNetFPModule(in_channels=in_channels + sa_in_channels[-1 - fp_idx] + embed_dim + (context_dim if concat else 0), out_channels=out_channels)
         )
         in_channels = out_channels[-1]
 
@@ -171,7 +176,7 @@ def create_pointnet2_fp_modules(fp_blocks, in_channels, sa_in_channels, embed_di
                     block = SharedMLP
                 else:
                     block = functools.partial(PVConv, kernel_size=3, resolution=int(vr * voxel_resolution), attention=attention,
-                                              dropout=dropout,
+                                              concat=concat, dropout=dropout,
                                               with_se=with_se, with_se_relu=True,
                                               normalize=normalize, eps=eps)
 
@@ -187,10 +192,9 @@ def create_pointnet2_fp_modules(fp_blocks, in_channels, sa_in_channels, embed_di
     return fp_layers, in_channels
 
 
-
 class PVCNN2Base(nn.Module):
 
-    def __init__(self, num_classes, embed_dim, use_att, dropout=0.1,
+    def __init__(self, num_classes, embed_dim, use_att, concat=False, context_dim=77, dropout=0.1,
                  extra_feature_channels=3, half_resolution=False, width_multiplier=1, voxel_resolution_multiplier=1):
         super().__init__()
         assert extra_feature_channels >= 0
@@ -227,11 +231,12 @@ class PVCNN2Base(nn.Module):
         
         self.embed_dim = embed_dim                      # default parse_args: embed_dim=64
         self.in_channels = extra_feature_channels + 3   # PVD-init calls PVCNN2 with extra_feature_channels=0
+        self.context_dim = context_dim
 
         # default parse_args: use_attn=True, dropout=0.1 
         sa_layers, sa_in_channels, channels_sa_features, _ = create_pointnet2_sa_components(
             sa_blocks=self.sa_blocks, extra_feature_channels=extra_feature_channels, with_se=True, embed_dim=embed_dim,
-            use_att=use_att, dropout=dropout,   
+            use_att=use_att, concat=concat, context_dim=self.context_dim, dropout=dropout,   
             width_multiplier=width_multiplier, voxel_resolution_multiplier=voxel_resolution_multiplier
         )
         self.sa_layers = nn.ModuleList(sa_layers)
@@ -242,7 +247,7 @@ class PVCNN2Base(nn.Module):
         sa_in_channels[0] = extra_feature_channels
         fp_layers, channels_fp_features = create_pointnet2_fp_modules(
             fp_blocks=self.fp_blocks, in_channels=channels_sa_features, sa_in_channels=sa_in_channels, with_se=True, embed_dim=embed_dim,
-            use_att=use_att, dropout=dropout,
+            use_att=use_att, concat=concat, context_dim=self.context_dim, dropout=dropout,
             width_multiplier=width_multiplier, voxel_resolution_multiplier=voxel_resolution_multiplier
         )
         self.fp_layers = nn.ModuleList(fp_layers)
@@ -273,7 +278,7 @@ class PVCNN2Base(nn.Module):
         assert emb.shape == torch.Size([timesteps.shape[0], self.embed_dim])
         return emb
 
-    def forward(self, inputs, t, context=None, text=None, epoch=0, save_matrices=False):           
+    def forward(self, inputs, t, context=None, text=None, epoch=0, save_matrices=False, concat=False, context_dim=77):           
         # here, t.shape = [B]
         temb =  self.embedf(self.get_timestep_embedding(t, inputs.device))[:,:,None].expand(-1,-1,inputs.shape[-1])     # temb: Bx64x2048 | condition: Bx64 | inputs: Bx3x2048
         
@@ -286,7 +291,15 @@ class PVCNN2Base(nn.Module):
             if i == 0:
                 features, coords, temb = sa_blocks ((features, coords, temb), context, text, epoch, save_matrices)
             else:
-                features, coords, temb = sa_blocks ((torch.cat([features,temb],dim=1), coords, temb), context, text, epoch, save_matrices)
+                if concat:  # if we apply concatenation, we do not apply cross-attention
+                    context = torch.mean(context, dim=2)    
+                    context = context.unsqueeze(-1)
+                    context = context.expand(-1, -1, temb.shape[-1])
+                    input_features = torch.cat([features,context,temb],dim=1)
+                else:
+                    input_features = torch.cat([features,temb],dim=1)
+                    
+                features, coords, temb = sa_blocks((input_features, coords, temb), context, text, epoch, save_matrices)
         in_features_list[0] = inputs[:, 3:, :].contiguous()
         if self.global_att is not None:
             features = self.global_att(features)

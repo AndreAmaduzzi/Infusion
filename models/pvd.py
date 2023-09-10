@@ -125,11 +125,11 @@ class GaussianDiffusion:
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
 
-    def p_mean_variance(self, denoise_fn, data, t, clip_denoised: bool, return_pred_xstart: bool, condition=None, epoch=0, save_matrices=False,):
+    def p_mean_variance(self, denoise_fn, data, t, clip_denoised: bool, return_pred_xstart: bool, condition=None, concat=False, context_dim=77, epoch=0, save_matrices=False,):
 
         # data = x_t
         if condition is not None:
-            model_output = denoise_fn(data, t, condition, epoch=epoch, save_matrices=save_matrices)     # this is eps_theta
+            model_output = denoise_fn(data, t, condition, concat=concat, context_dim=context_dim, epoch=epoch, save_matrices=save_matrices)     # this is eps_theta
         else:
             raise Exception('condition is None')
 
@@ -173,12 +173,12 @@ class GaussianDiffusion:
 
     ''' samples '''
 
-    def p_sample(self, denoise_fn, data, t, noise_fn, clip_denoised=False, return_pred_xstart=False, condition=None, epoch=0, save_matrices=False):
+    def p_sample(self, denoise_fn, data, t, noise_fn, clip_denoised=False, return_pred_xstart=False, condition=None, concat=False, context_dim=77, epoch=0, save_matrices=False):
         """
         Sample from the model
         """
         model_mean, _, model_log_variance, pred_xstart = self.p_mean_variance(denoise_fn, data=data, t=t, clip_denoised=clip_denoised,
-                                                                 return_pred_xstart=True, condition=condition, epoch=epoch, save_matrices=save_matrices)
+                                                                 return_pred_xstart=True, condition=condition, concat=concat, context_dim=context_dim, epoch=epoch, save_matrices=save_matrices)
         noise = noise_fn(size=data.shape, dtype=data.dtype, device=data.device)
         assert noise.shape == data.shape
         # no noise when t == 0
@@ -245,7 +245,7 @@ class GaussianDiffusion:
         assert img_t.shape == shape
         return img_t
     
-    def test_p_sample_loop(self, denoise_fn, shape, device, condition=None,
+    def test_p_sample_loop(self, denoise_fn, shape, device, condition=None, concat=False, context_dim=77,
                       noise_fn=torch.randn, constrain_fn=lambda x, t:x,
                       clip_denoised=True, max_timestep=None, keep_running=False):
         """
@@ -263,7 +263,7 @@ class GaussianDiffusion:
         for t in reversed(range(0, final_time if not keep_running else len(self.betas))):
             img_t = constrain_fn(img_t, t)
             t_ = torch.empty(shape[0], dtype=torch.int64, device=device).fill_(t)
-            img_t = self.p_sample(denoise_fn=denoise_fn, data=img_t,t=t_, noise_fn=noise_fn, condition=condition,
+            img_t = self.p_sample(denoise_fn=denoise_fn, data=img_t,t=t_, noise_fn=noise_fn, condition=condition, concat=concat, context_dim=context_dim,
                                   clip_denoised=clip_denoised, return_pred_xstart=False).detach()
 
 
@@ -271,7 +271,7 @@ class GaussianDiffusion:
         return img_t
 
 
-    def p_sample_loop_trajectory(self, denoise_fn, shape, device, freq, condition=None,
+    def p_sample_loop_trajectory(self, denoise_fn, shape, device, freq, condition=None, concat=False, context_dim=77,
                                  noise_fn=torch.randn,clip_denoised=True, keep_running=False):
         """
         Generate samples, returning intermediate images
@@ -289,7 +289,7 @@ class GaussianDiffusion:
         for t in reversed(range(0,total_steps)):
             t_ = torch.empty(shape[0], dtype=torch.int64, device=device).fill_(t)
             img_t = self.p_sample(denoise_fn=denoise_fn, data=img_t, t=t_, noise_fn=noise_fn,
-                                  clip_denoised=clip_denoised, condition=condition,
+                                  clip_denoised=clip_denoised, condition=condition, concat=concat, context_dim=context_dim,
                                   return_pred_xstart=False).detach()
             if t % freq == 0 or t == total_steps-1:
                 imgs.append(img_t)
@@ -308,7 +308,7 @@ class GaussianDiffusion:
 
         return (kl, pred_xstart) if return_pred_xstart else kl
 
-    def p_losses(self, denoise_fn, data_start, t, noise=None, condition=None, text=None, epoch=0, save_matrices=False):
+    def p_losses(self, denoise_fn, data_start, t, noise=None, condition=None, text=None, epoch=0, save_matrices=False, concat=False, context_dim=77):
         """
         Training loss calculation
         """
@@ -323,7 +323,7 @@ class GaussianDiffusion:
 
         if self.loss_type == 'mse':
             # predict the noise instead of x_start. seems to be weighted naturally like SNR
-            eps_recon = denoise_fn(data_t, t, condition, text, epoch, save_matrices)
+            eps_recon = denoise_fn(data_t, t, condition, text, epoch, save_matrices, concat, context_dim)
             assert data_t.shape == data_start.shape
             assert eps_recon.shape == torch.Size([B, D, N])
             assert eps_recon.shape == data_start.shape
@@ -392,16 +392,18 @@ class PVCNN2(PVCNN2Base):
     def __init__(self, num_classes, embed_dim, use_att, concat, context_dim, dropout, extra_feature_channels=3, half_resolution=False, width_multiplier=1,
                  voxel_resolution_multiplier=1):
         super().__init__(
+            num_classes=num_classes, embed_dim=embed_dim, use_att=use_att, concat=concat, context_dim=context_dim,
             dropout=dropout, extra_feature_channels=extra_feature_channels, 
             half_resolution=half_resolution, width_multiplier=width_multiplier, 
+            voxel_resolution_multiplier=voxel_resolution_multiplier
         )
 
 class PVD(nn.Module):
-    def __init__(self, args, betas, loss_type: str, model_mean_type: str, model_var_type:str):
+    def __init__(self, args, betas, loss_type: str, model_mean_type: str, model_var_type:str, concat:bool, context_dim:int):
         super(PVD, self).__init__()
         self.diffusion = GaussianDiffusion(betas, loss_type, model_mean_type, model_var_type)
 
-        self.model = PVCNN2(num_classes=args.nc, embed_dim=args.embed_dim, use_att=args.attention,
+        self.model = PVCNN2(num_classes=args.nc, embed_dim=args.embed_dim, use_att=args.attention, concat=concat, context_dim=context_dim,
                             dropout=args.dropout, extra_feature_channels=0, half_resolution=args.half_resolution)
 
     def prior_kl(self, x0):
@@ -418,17 +420,17 @@ class PVD(nn.Module):
         }
 
 
-    def _denoise(self, data, t, condition=None, text=None, epoch=0, save_matrices=False):
+    def _denoise(self, data, t, condition=None, text=None, epoch=0, save_matrices=False, concat=False, context_dim=77):
         B, D,N= data.shape
         assert data.dtype == torch.float
         assert t.shape == torch.Size([B]) and t.dtype == torch.int64
 
-        out = self.model(data, t, condition, text, epoch, save_matrices)
+        out = self.model(data, t, condition, text, epoch, save_matrices, concat, context_dim)
 
         assert out.shape == torch.Size([B, D, N])
         return out
 
-    def get_loss_iter(self, data, c=None, noises=None, condition=None, text=None, epoch=0, save_matrices=False):
+    def get_loss_iter(self, data, c=None, noises=None, condition=None, text=None, epoch=0, save_matrices=False, concat=False, context_dim=77):
         B, D, N = data.shape
         t = torch.randint(0, self.diffusion.num_timesteps, size=(B,), device=data.device)
 
@@ -436,25 +438,25 @@ class PVD(nn.Module):
             noises[t!=0] = torch.randn((t!=0).sum(), *noises.shape[1:]).to(noises)  # modify epsilon for elements with t!=0  
 
         losses = self.diffusion.p_losses(
-            denoise_fn=self._denoise, data_start=data, t=t, noise=noises, condition=condition, text=text, epoch=epoch, save_matrices=save_matrices)
+            denoise_fn=self._denoise, data_start=data, t=t, noise=noises, condition=condition, text=text, epoch=epoch, save_matrices=save_matrices, concat=concat, context_dim=context_dim)
         assert losses.shape == t.shape == torch.Size([B])
         return losses, t
 
-    def gen_samples(self, shape, device, noise_fn=torch.randn, condition=None, constrain_fn=lambda x, t:x,
+    def gen_samples(self, shape, device, noise_fn=torch.randn, condition=None, concat=False, context_dim=77, constrain_fn=lambda x, t:x,
                     clip_denoised=True, max_timestep=None,
                     keep_running=False):
 
-        return self.diffusion.test_p_sample_loop(self._denoise, shape=shape, device=device, condition=condition, noise_fn=noise_fn,
+        return self.diffusion.test_p_sample_loop(self._denoise, shape=shape, device=device, condition=condition, concat=concat, context_dim=context_dim, noise_fn=noise_fn,
                                             constrain_fn=constrain_fn, clip_denoised=clip_denoised, max_timestep=None,
                                             keep_running=keep_running)
 
         #return self.diffusion.test_p_sample_loop(self._denoise, shape=shape, device=device, condition=condition, noise_fn=noise_fn,
         #                                    clip_denoised=clip_denoised, keep_running=keep_running)
 
-    def gen_sample_traj(self, shape, device, freq, noise_fn=torch.randn, condition=None,
+    def gen_sample_traj(self, shape, device, freq, noise_fn=torch.randn, condition=None, concat=False, context_dim=77,
                     clip_denoised=True,keep_running=False):
         return self.diffusion.p_sample_loop_trajectory(self._denoise, shape=shape, device=device, noise_fn=noise_fn, freq=freq,
-                                                       condition=condition, clip_denoised=clip_denoised,
+                                                       condition=condition, concat=concat, context_dim=context_dim, clip_denoised=clip_denoised,
                                                        keep_running=keep_running)
 
     def train(self):

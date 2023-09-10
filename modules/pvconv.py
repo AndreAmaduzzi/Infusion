@@ -168,7 +168,7 @@ class FeedForward(nn.Module):
 
 
 class PVConv(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, resolution, attention=False,
+    def __init__(self, in_channels, out_channels, kernel_size, resolution, attention=False, concat=False,
                  dropout=0.1, with_se=False, with_se_relu=False, normalize=True, eps=0):
         super().__init__()
         self.in_channels = in_channels
@@ -194,10 +194,11 @@ class PVConv(nn.Module):
         else:
             voxel_layers += [Swish()]
 
-        voxel_layers += [
-            CrossAttention(out_channels, 8, self.context_dim),                
-            FeedForward(out_channels, 8, dropout=dropout),
-            ]
+        if not concat:  # if we apply concatenation of features with context, we do not add cross-attention
+            voxel_layers += [
+                CrossAttention(out_channels, 8, self.context_dim),                
+                FeedForward(out_channels, 8, dropout=dropout),
+                ]
 
         if with_se:
             voxel_layers.append(SE3d(out_channels, use_relu=with_se_relu))
