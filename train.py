@@ -76,31 +76,31 @@ def get_shapenet_dataset(dataroot, npoints, category):
     )
     return tr_dataset, val_dataset
 
-def get_text2shape_dataset(dataroot, category):
+def get_text2shape_dataset(dataroot, category, max_length, use_concatenation):
     tr_dataset = Text2Shape(root=Path(dataroot),
-        chatgpt_prompts = True,
+        chatgpt_prompts = not use_concatenation,
         split="train",
         categories=category,
         from_shapenet_v1=True,
         from_shapenet_v2=False,
         conditional_setup=True,
         language_model="t5-11b",
-        lowercase_text=True,
-        max_length=77,         
-        padding=False,
+        lowercase_text=not use_concatenation,    
+        max_length=max_length,         
+        padding=use_concatenation,
         scale_mode="global_unit")    # global unit
-    
+        
     val_dataset = Text2Shape(root=Path(dataroot),
-        chatgpt_prompts=True,
+        chatgpt_prompts = not use_concatenation,
         split="val",
         categories=category,
         from_shapenet_v1=True,
         from_shapenet_v2=False,
         conditional_setup=True,
         language_model="t5-11b",
-        lowercase_text=True,
-        max_length=77,         
-        padding=False,
+        lowercase_text=not use_concatenation,
+        max_length=max_length,         
+        padding=use_concatenation,
         scale_mode="global_unit"     # global unit
        )
     
@@ -290,12 +290,13 @@ def train(gpu, opt, train_dset, val_dset, noises_init):
 
             #print('is the text embed free from all zeros rows? ', torch.count_nonzero(sum_text_embed)==sum_text_embed.shape[0])
             
-            text_embed = maxlen_padding(text_embed) # truncate or pad all text embeds to longest sequence in batch
+            if not opt.use_concat:
+                text_embed = maxlen_padding(text_embed) # truncate or pad all text embeds to longest sequence in batch
 
             model.pvd.train()
         
             with torch.autocast(device_type='cuda', dtype=torch.float16):
-                loss, t = model.get_loss(x, noises_batch, text_embed, text, epoch)
+                loss, t = model.get_loss(x, noises_batch, text_embed, text, epoch, save_matrices=False, concat=opt.use_concat, context_dim=text_embed.shape[1])
                 loss = loss.mean()
                 assert loss.dtype is torch.float32
             
@@ -405,7 +406,7 @@ def train(gpu, opt, train_dset, val_dset, noises_init):
 
                 viz_folder = os.path.join(opt.output_dir, 'syn')
 
-                visualize_shape_grids(model, train_batch=data, val_dl=val_dataloader, output_dir=viz_folder, epoch=epoch, logger=logger)
+                visualize_shape_grids(model, train_batch=data, val_dl=val_dataloader, output_dir=viz_folder, epoch=epoch, logger=logger, concat=opt.use_concat, context_dim=text_embed.shape[1])
 
         if (epoch+1) % opt.valEpoch == 0 and should_diag:
                 logger.info('Running validation...')
@@ -420,7 +421,7 @@ def train(gpu, opt, train_dset, val_dset, noises_init):
                         ref_hist[val_dset[i]["model_id"]] = 1
 
                 model.pvd.eval()
-
+                
                 val_folder = os.path.join(opt.output_dir, 'validation')
                 val_results, mean_chamfer = run_validation(model, ref_hist, val_folder, epoch, opt.val_size, opt.bs, val_dataloader)
 
@@ -438,6 +439,7 @@ def train(gpu, opt, train_dset, val_dset, noises_init):
                 logger.info('[Val] MinMatDis | CD %.6f | EMD n/a' % (val_results['lgan_mmd-CD']))
                 logger.info('[Val] JsnShnDis | %.6f ' % (val_results['jsd']))
                 logger.info('[Val] Mean Chamfer Distance between Ref and Gen: %.6f ' % (mean_chamfer))
+                                
 
         # comment this line below if you want to keep a CONSTANT LEARNING RATE
         #lr_scheduler.step() # TODO: change position of this call => Exponential Scheduler has to be called at every epoch. 
@@ -456,12 +458,12 @@ def main():
 
     # get dataset
     if opt.train_ds == 'shapenet':
-        train_dataset, val_dataset = get_shapenet_dataset(opt.sn_dataroot, opt.npoints, opt.category, opt.val_size)
+        train_dataset, val_dataset = get_shapenet_dataset(opt.sn_dataroot, opt.npoints, opt.category)
         noises_init = torch.randn(len(train_dataset), opt.npoints, opt.nc)
     elif opt.train_ds == 'text2shape':
         if opt.pvd_model != '':
             opt.category = "chair"
-        train_dataset, val_dataset = get_text2shape_dataset(opt.t2s_dataroot, opt.category, opt.val_size)
+        train_dataset, val_dataset = get_text2shape_dataset(opt.t2s_dataroot, opt.category, opt.max_text_len, opt.use_concat)
         noises_init = torch.randn(len(train_dataset), opt.npoints, opt.nc)
     else:
         raise Exception('train_ds not specified correctly. Got ', opt.train_ds)
@@ -489,21 +491,28 @@ def parse_args():
     parser.add_argument('--sn_dataroot', default='../PVD/data/ShapeNetCore.v2.PC15k/', help="dataroot of ShapeNet")
     parser.add_argument('--t2s_dataroot', default='/media/data2/aamaduzzi/datasets/Text2Shape/', help="dataroot of ShapeNet")
     parser.add_argument('--category', default='all')
-    parser.add_argument('--bs', type=int, default=40, help='input batch size')
+    parser.add_argument('--bs', type=int, default=64, help='input batch size')
     parser.add_argument('--workers', type=int, default=0, help='workers')
     parser.add_argument('--n_epochs', type=int, default=111000, help='number of epochs to train for')
     parser.add_argument('--nc', default=3)
     parser.add_argument('--npoints', default=2048)
-    parser.add_argument('--output_dir', type=str, default="./exps/exp_test/", help='directory for experiments logging',)
+    parser.add_argument('--output_dir', type=str, default="./exps/halfres_concat/", help='directory for experiments logging')
 
     # PVD
-    # noise schedule
+    ## resolution
+    parser.add_argument('--half_resolution', action="store_true")
+    
+    # text-conditioning scheme
+    parser.add_argument('--use_concat', action="store_true", help='if set, text-conditioning is done through concatenation, else cross-attention')
+    parser.add_argument('--max_text_len', type=int, default=77, help='max length of text embedding, use for padding and truncation in Text2Shape dataset')
+    
+    ## noise schedule
     parser.add_argument('--beta_start', default=0.0001)
     parser.add_argument('--beta_end', default=0.02)
     parser.add_argument('--schedule_type', default='linear')
-    parser.add_argument('--time_num', default=500)
+    parser.add_argument('--time_num', default=1000)
 
-    #loss params
+    ## loss params
     parser.add_argument('--attention', default=True)
     parser.add_argument('--dropout', default=0.1)
     parser.add_argument('--embed_dim', type=int, default=64)
@@ -511,15 +520,15 @@ def parse_args():
     parser.add_argument('--model_mean_type', default='eps')
     parser.add_argument('--model_var_type', default='fixedsmall')
 
-    # learning rate params
+    ## learning rate params
     parser.add_argument('--lr', type=float, default=2e-4, help='learning rate for E, default=0.0002')
     parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for adam. default=0.5')
     parser.add_argument('--decay', type=float, default=0, help='weight decay for EBM')
     parser.add_argument('--grad_clip', type=float, default=None, help='weight decay for EBM')
     parser.add_argument('--lr_gamma', type=float, default=0.9998, help='lr decay for EBM')
 
-    # path to checkpt of trained model and PVD model
-    parser.add_argument('--model', default='', help="path to model (to continue training)")
+    ## path to checkpt of trained model and PVD model
+    parser.add_argument('--model', default='exps/halfres_concat/epoch_99.pth', help="path to model (to continue training)")
     parser.add_argument('--pvd_model', default='', help="path to pre-trained unconditional PVD")
 
     # distributed training
@@ -529,21 +538,21 @@ def parse_args():
                         help='url used to set up distributed training')
     parser.add_argument('--dist_backend', default='nccl', type=str,
                         help='distributed backend')
-    parser.add_argument('--distribution_type', default=None, choices=['multi', 'single', None],
+    parser.add_argument('--distribution_type', default='single', choices=['multi', 'single', None],
                         help='Use multi-processing distributed training to launch '
                              'N processes per node, which has N GPUs. This is the '
                              'fastest way to use PyTorch for either single node or '
                              'multi node data parallel training')
     parser.add_argument('--rank', default=0, type=int,
                         help='node rank for distributed training')
-    parser.add_argument('--gpu', default=0, type=int,
+    parser.add_argument('--gpu', default=None, type=int,
                         help='GPU id to use. None means using all available GPUs.')
 
     # evaluation params
-    parser.add_argument('--saveEpoch', default=50, help='unit: epoch when checkpoint is saved')  
-    parser.add_argument('--diagEpoch', default=50, help='unit: epoch when diagnosis is done')
-    parser.add_argument('--vizEpoch', default=50, help='unit: epoch when visualization is done')
-    parser.add_argument('--valEpoch', default=1, help='unit: epoch when validation is done')
+    parser.add_argument('--saveEpoch', default=100, help='unit: epoch when checkpoint is saved')  
+    parser.add_argument('--diagEpoch', default=100, help='unit: epoch when diagnosis is done')
+    parser.add_argument('--vizEpoch', default=100, help='unit: epoch when visualization is done')
+    parser.add_argument('--valEpoch', default=100, help='unit: epoch when validation is done')
     parser.add_argument('--compEpoch', default=10000, help='unit: epoch when comparison with unconditional PVD is done')
     parser.add_argument('--val_size', default=None, help='number of clouds evaluated during validation')    # if None => validation is computed on whole validation dset
     parser.add_argument('--print_freq', default=100, help='unit: iter where gradients and step are printed')
