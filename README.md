@@ -97,7 +97,7 @@ The table below shows some qualitative results of the text-driven generation pro
 | text            | cross-attention             | concatenation              |
 |-----------------|-----------------------------|----------------------------|
 | "a sofa chair"  | <img src="github_figs/crossattn_sofa0001-0400.gif" alt="alt text" width=150> | <img src="github_figs/crossattn_sofa0001-0400.gif" alt="alt text" width=150> |
-| "a round table" | <img src="github_figs/crossattn_sofa0001-0400.gif" alt="alt text" width=150>  | <img src="github_figs/crossattn_sofa0001-0400.gif" alt="alt text" width=150>  |
+| "a round table" | <img src="github_figs/crossattn_round_table0001-0400.gif" alt="alt text" width=150>  | <img src="github_figs/crossattn_sofa0001-0400.gif" alt="alt text" width=150>  |
 | "a long rectangular table" | <img src="github_figs/crossattn_sofa0001-0400.gif" alt="alt text" width=150>  | <img src="github_figs/crossattn_sofa0001-0400.gif" alt="alt text" width=150>  |
 
 ## Conclusion
