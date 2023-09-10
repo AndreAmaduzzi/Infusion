@@ -62,18 +62,18 @@ def get_shapenet_dataset(dataroot, npoints, category):
     )
     return tr_dataset, val_dataset
 
-def get_test_text2shape_dataset(dataroot, category, chatgpt_prompts):
+def get_test_text2shape_dataset(dataroot, category, max_len, use_concatenation):
     test_dataset = Text2Shape(root=Path(dataroot),
         split="test",
-        chatgpt_prompts=chatgpt_prompts,
+        chatgpt_prompts=not use_concatenation,
         categories=category,
         from_shapenet_v1=True,
         from_shapenet_v2=False,
         conditional_setup=True,
         language_model="t5-11b",
-        lowercase_text=True,
-        max_length=77,
-        padding=False,
+        lowercase_text=not use_concatenation,
+        max_length=max_len,
+        padding=use_concatenation,
         scale_mode="global_unit")
 
     return test_dataset
@@ -99,7 +99,7 @@ def get_test_dataloader(opt, test_dataset):
 
 
 def generate(model, opt):
-    test_dataset = get_test_text2shape_dataset(opt.t2s_dataroot, opt.category, opt.chatgpt_prompts)
+    test_dataset = get_test_text2shape_dataset(opt.t2s_dataroot, opt.category, opt.max_text_len, opt.use_concat)
     ref_hist = dict()
     texts = []
     model_ids = []
@@ -127,7 +127,7 @@ def generate(model, opt):
         text_embed = maxlen_padding(text_embed)
         mean, std = data['mean'].float(), data['std'].float()   # in Text2Shape, we already do it when we initialize the dataset
             
-        gen = model.get_clouds(text_embed, x).detach().cpu()
+        gen = model.get_clouds(text_embed, x, opt.use_concat, text_embed.shape[1]).detach().cpu()
         gen = gen.transpose(1,2).contiguous()
         x = x.transpose(1,2).contiguous()
 
@@ -287,9 +287,16 @@ def parse_args():
     parser.add_argument('--workers', type=int, default=0, help='workers')
     parser.add_argument('--nc', default=3)
     parser.add_argument('--npoints', default=2048)
-    parser.add_argument('--eval_dir', default='./evaluation/small_500_steps_fp16', help='directory for evaluation results')
+    parser.add_argument('--eval_dir', default='./evaluation/halfres_concat', help='directory for evaluation results')
 
     # PVD
+    ## resolution
+    parser.add_argument('--half_resolution', action="store_true")
+    
+    # text-conditioning scheme
+    parser.add_argument('--use_concat', action="store_true", help='if set, text-conditioning is done through concatenation, else cross-attention')
+    parser.add_argument('--max_text_len', type=int, default=77, help='max length of text embedding, use for padding and truncation in Text2Shape dataset')
+    
     # noise schedule
     parser.add_argument('--beta_start', default=0.0001)
     parser.add_argument('--beta_end', default=0.02)
@@ -306,7 +313,7 @@ def parse_args():
 
 
     # path to checkpt of trained model and PVD model
-    parser.add_argument('--model', default='./exps/small_500_fp16_chatgpt/epoch_99.pth', help="path to model (to continue training)")
+    parser.add_argument('--model', default='./exps/halfres_concat/epoch_99.pth', help="path to model (to continue training)")
     parser.add_argument('--maxlen_pad', action='store_true')
     parser.add_argument('--chatgpt_prompts', action='store_true')
 
