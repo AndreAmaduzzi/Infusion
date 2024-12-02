@@ -16,10 +16,14 @@ pip install -r requirements.txt
 ## Architecture
 The architecture of this project is inspired by [PVD](https://arxiv.org/pdf/2104.03670.pdf), a method for unconditional point cloud generation.
 The following figure, taken from this method summarizes the diffusion process, which allows to generate a point cloud from random noise.
-![diffusion](github_figs/diffusion.png )
-
+<p align="center">
+  <img src="github_figs/diffusion_crop.png" />
+</p>
 The architecture of the trainable network which learns to estimate the noise applied to an input source, is shown in  the figure below.
-![infusion](github_figs/full_infusion.drawio.png)
+<p align="center">
+  <img src="github_figs/full_infusion.drawio.png" />
+</p>
+
 The model receives as input the _noisy point cloud_, its corresponding time step _t_ and the _text_ describing the point cloud. The text prompt is processed by the Encoder Model of the large language model [T5](https://arxiv.org/pdf/1910.10683.pdf), which computes a text embedding. This text embedding is provided as input to the PVConv layers to predict the noise, conditioned on text.
 
 In order to generate shapes directly from text, two conditional schemes have been implemented and evaluated:
